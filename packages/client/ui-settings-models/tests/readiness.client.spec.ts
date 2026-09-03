@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { CredentialInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelsSettingsState, ProviderRow } from '../src/client/store.ts'
 import { onboardingReadiness, providerUsable } from '../src/client/store.ts'
+import { statusSyncText } from '../src/client/ModelsSection.tsx'
+import { en } from '../src/client/locales.ts'
 
 const missingCredential: CredentialInfo = { configured: false, writable: true }
 
@@ -49,6 +51,8 @@ function state(overrides: Partial<ModelsSettingsState> = {}): ModelsSettingsStat
     writable: true,
     rows: [row()],
     namespaces: new Map(),
+    autoSyncEnabled: true,
+    sync: { status: 'idle', message: null, added: 0 },
     ...overrides,
   }
 }
@@ -126,5 +130,37 @@ describe('onboardingReadiness', () => {
       kind: 'unavailable',
       reason: 'settings-read-only',
     })
+  })
+})
+
+describe('statusSyncText', () => {
+  const t = (key: keyof typeof en): string => en[key]
+
+  it('is null when the sync has not run yet', () => {
+    expect(statusSyncText(state(), t)).toBeNull()
+  })
+
+  it('shows the running text while probing', () => {
+    expect(statusSyncText(state({ sync: { status: 'running' } }), t)).toBe(en.syncRunning)
+  })
+
+  it('shows the failure text for a whole-sync error', () => {
+    expect(statusSyncText(state({ sync: { status: 'error', message: 'nope' } }), t))
+      .toBe(en.syncFailed.replace('{message}', 'nope'))
+  })
+
+  it('shows the failure text when a partial sync could not probe some route', () => {
+    expect(statusSyncText(state({ sync: { status: 'done', message: 'openai: nope', added: 2 } }), t))
+      .toBe(en.syncFailed.replace('{message}', 'openai: nope'))
+  })
+
+  it('interpolates the added count', () => {
+    expect(statusSyncText(state({ sync: { status: 'done', message: null, added: 3 } }), t))
+      .toBe(en.syncAdded.replace('{count}', '3'))
+  })
+
+  it('reports when nothing new was added', () => {
+    expect(statusSyncText(state({ sync: { status: 'done', message: null, added: 0 } }), t))
+      .toBe(en.syncNoNew)
   })
 })
