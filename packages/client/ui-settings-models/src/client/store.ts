@@ -9,7 +9,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -99,7 +99,18 @@ export interface ModelsSettingsState {
   rows: readonly ProviderRow[]
   /** Namespace views by ns, for the editor's schema/layers/secrets. */
   namespaces: ReadonlyMap<string, SettingsNamespaceView>
+  /** Whether new models are written straight into settings on load. */
+  autoSyncEnabled: boolean
+  /** Progress of the auto/manual "sync models" action. */
+  sync: ModelsSyncState
 }
+
+/** Progress of the bulk "sync models" action (an add-only catalog refresh). */
+export type ModelsSyncState =
+  | { status: 'idle'; message: string | null; added: number }
+  | { status: 'running' }
+  | { status: 'done'; message: string | null; added: number }
+  | { status: 'error'; message: string }
 
 /**
  * Derive the conventional credential reference for a provider route: the v1
@@ -145,15 +156,56 @@ function apiKeyEnvOf(
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
+/** LocalStorage key holding the value of the auto-sync toggle. */
+const AUTO_SYNC_KEY = 'dsh.modelsSettings.autoSync'
+
+/**
+ * Read the persisted auto-sync toggle. Unset defaults to **off**: the page is
+ * meant to keep a route's models current only when the user opts in, since the
+ * action interrogates every configured pi-ai endpoint over the wire. Storage is
+ * unavailable in a fresh test env, so an unreadable flag falls back to off.
+ */
+function readAutoSyncFlag(): boolean {
+  try {
+    return localStorage.getItem(AUTO_SYNC_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** The existing model entries a profile already serves, as an array. */
+function modelsEntriesOf(
+  path: readonly string[],
+  namespace: SettingsNamespaceView | undefined,
+  schema: SettingsSchemaOperations,
+): readonly { id: string }[] {
+  /* v8 ignore next -- syncModelsNow only calls this with a resolved namespace */
+  if (namespace === undefined) return []
+  const found = schema.getPath(namespace.value, path)
+  return Array.isArray(found)
+    ? found.filter((value): value is { id: string } =>
+      typeof value === 'object' && value !== null && typeof (value as { id?: unknown }).id === 'string')
+    : []
+}
+
+/** Read a rejection's message, stringifying anything else a catch may carry. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
     status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
+    autoSyncEnabled: readAutoSyncFlag(), sync: { status: 'idle', message: null, added: 0 },
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
   private generation = 0
+
+  /** Routes the auto-sync already wrote this mount, so load() never re-fires it. */
+  private autoSynced = new Set<string>()
 
   /**
    * @param ctx - the page plugin's context, whose `remote.llm` and
@@ -238,6 +290,9 @@ export class ModelsSettingsStore {
       })
       s.namespaces = namespaces
     })
+    // Keep a route's models current without a manual refresh: once per mount,
+    // for each configured pi-ai route not yet written this session.
+    void this.syncNowIfAuto()
   }
 
   /** Publish one load's failure text, unless a newer load already took over. */
@@ -247,6 +302,92 @@ export class ModelsSettingsStore {
       s.status = 'error'
       s.error = message
     })
+  }
+
+  /**
+   * Toggle the auto-sync, persisting the choice. A toggle clears the per-mount
+   * "written" set so a re-enabled mount will consider a route again.
+   * @param enabled - whether new models are written straight into settings.
+   */
+  setAutoSync(enabled: boolean): void {
+    try {
+      localStorage.setItem(AUTO_SYNC_KEY, enabled ? '1' : '0')
+    } catch {
+      // Storage unavailable: the in-memory flag still governs this mount.
+    }
+    this.autoSynced.clear()
+    this.store.update((s) => { s.autoSyncEnabled = enabled })
+  }
+
+  /** Run the auto-sync when enabled and a mount has not already done so. */
+  private syncNowIfAuto(): void {
+    if (this.store.getSnapshot().autoSyncEnabled) void this.syncModelsNow()
+  }
+
+  /**
+   * Ask every configured pi-ai route what its endpoint serves right now
+   * (`forceLive`, so even a catalog route is interrogated over the wire), and
+   * write the new models straight into settings — add-only, with the picks the
+   * live list introduced. Nothing is ever removed; a route the user tuned keeps
+   * its entries, and a model already served is never duplicated.
+   * @returns nothing; the snapshot carries the sync outcome.
+   */
+  async syncModelsNow(): Promise<void> {
+    const state = this.store.getSnapshot()
+    if (state.status !== 'ready') return
+    this.store.update((s) => { s.sync = { status: 'running' } })
+    const namespace = state.namespaces.get('llm-pi-ai')
+    if (namespace === undefined) {
+      this.store.update((s) => { s.sync = { status: 'error', message: 'no llm-pi-ai namespace' } })
+      return
+    }
+    const ops: SettingsPathOpView[] = []
+    let addedTotal = 0
+    const failures: string[] = []
+    for (const row of state.rows) {
+      if (!row.configured || row.entry.settingsNs !== 'llm-pi-ai') continue
+      if (this.autoSynced.has(row.entry.provider)) continue
+      try {
+        const response = await this.ctx.remote.llm.discoverModels(row.entry.settingsNs, {
+          provider: row.entry.provider,
+          forceLive: true,
+        })
+        this.autoSynced.add(row.entry.provider)
+        if (!response.ok) {
+          failures.push(`${row.entry.provider}: ${response.error.message}`)
+          continue
+        }
+        const live = response.value
+        const path = [...row.entry.settingsPath, 'models']
+        const known = new Set(modelsEntriesOf(path, namespace, this.schema).map(entry => entry.id))
+        const newIds = live.map(model => model.id).filter(id => id.length > 0 && !known.has(id))
+        if (newIds.length === 0) continue
+        ops.push({
+          op: 'set',
+          path,
+          value: [...modelsEntriesOf(path, namespace, this.schema), ...newIds.map(id => ({ id }))],
+        })
+        addedTotal += newIds.length
+      } catch (error) {
+        this.autoSynced.add(row.entry.provider)
+        failures.push(`${row.entry.provider}: ${messageOf(error)}`)
+      }
+    }
+    if (ops.length > 0) {
+      try {
+        const response = await this.ctx.remote.settings.mutate('llm-pi-ai', ops, namespace.revision)
+        if (!response.ok) {
+          this.store.update((s) => { s.sync = { status: 'error', message: response.error.message } })
+          return
+        }
+      } catch (error) {
+        this.store.update((s) => { s.sync = { status: 'error', message: messageOf(error) } })
+        return
+      }
+      await this.load()
+    }
+    const message = failures.length > 0 ? failures.join('; ') : null
+    this.store.update((s) => { s.sync = { status: 'done', message, added: addedTotal } })
   }
 }
 

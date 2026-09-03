@@ -690,3 +690,29 @@ select.input {
   line-height: 20px;
   text-align: center;
 }
+
+.catalogSync {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.catalogSyncToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.catalogSyncLabel {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.catalogSyncStatus {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}

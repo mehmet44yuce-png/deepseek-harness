@@ -313,6 +313,25 @@ describe('ModelsSection', () => {
     expect(document.body.textContent).toBe('')
   })
 
+  it('toggles auto-sync from the section control and persists the choice', async () => {
+    localStorage.clear()
+    const { controller } = await mountSection()
+    const toggle = screen.getByRole('checkbox') as HTMLInputElement
+    expect(controller.store.getSnapshot().autoSyncEnabled).toBe(false)
+    fireEvent.click(toggle)
+    expect(controller.store.getSnapshot().autoSyncEnabled).toBe(true)
+    expect(localStorage.getItem('dsh.modelsSettings.autoSync')).toBe('1')
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(controller.store.getSnapshot().autoSyncEnabled).toBe(false)
+    expect(localStorage.getItem('dsh.modelsSettings.autoSync')).toBe('0')
+  })
+
+  it('renders the auto-sync status line after a sync', async () => {
+    localStorage.clear()
+    const { controller } = await mountSection()
+    await controller.syncModelsNow()
+    expect((await screen.findByRole('status')).textContent).toBe(en.syncNoNew)
+  })
   it('dispatches the provider-card seat per rendered row, keyed by the owning namespace', async () => {
     const { renderSlot } = await mountSection()
     const cards = cardSeatCalls(renderSlot)

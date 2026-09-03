@@ -101,6 +101,11 @@ export const en = {
   onboardingSave: 'Save and continue',
   onboardingSaving: 'Saving…',
   keyRequired: 'Enter an API key to continue.',
+  autoSync: 'Keep models up to date automatically',
+  syncRunning: 'Checking for new models…',
+  syncNoNew: 'No new models found.',
+  syncAdded: '{count} new model(s) added.',
+  syncFailed: 'Model sync failed: {message}',
 }
 
 /** The settings.models namespace key union. */
@@ -207,4 +212,9 @@ export const zh: { [Key in keyof typeof en]: string } = {
   onboardingSave: '保存并继续',
   onboardingSaving: '保存中…',
   keyRequired: '请输入 API 密钥后继续。',
+  autoSync: '自动保持模型为最新',
+  syncRunning: '正在检查新模型…',
+  syncNoNew: '未发现新模型。',
+  syncAdded: '已添加 {count} 个新模型。',
+  syncFailed: '模型同步失败：{message}',
 }

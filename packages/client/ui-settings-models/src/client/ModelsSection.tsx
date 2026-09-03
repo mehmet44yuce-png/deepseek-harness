@@ -20,7 +20,7 @@ import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-sl
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -127,6 +127,30 @@ export async function removeProviderProfile(
   if (written.kind !== 'written') return written.message
   await controller.load()
   return undefined
+}
+
+/**
+ * The auto-sync status line to show, or null when the action has not run yet.
+ * Failure text stays raw (it is the wire's own diagnostic); success copy is
+ * locale-owned and only interpolates the count.
+ * @param state - the page snapshot.
+ * @param t - the section translate.
+ * @returns the status text, or null when idle.
+ */
+export function statusSyncText(
+  state: ModelsSettingsState,
+  t: ModelsSectionInjected['t'],
+): string | null {
+  const sync = state.sync
+  if (sync.status === 'running') return t('syncRunning')
+  if (sync.status === 'error') return t('syncFailed').replace('{message}', sync.message)
+  if (sync.status === 'done') {
+    if (sync.message !== null) return t('syncFailed').replace('{message}', sync.message)
+    return sync.added > 0
+      ? t('syncAdded').replace('{count}', String(sync.added))
+      : t('syncNoNew')
+  }
+  return null
 }
 
 /**
@@ -308,6 +332,24 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     <div className={styles['section']}>
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
+      <div className={styles['catalogSync']}>
+        <label className={styles['catalogSyncToggle']}>
+          <input
+            type="checkbox"
+            checked={state.autoSyncEnabled}
+            disabled={!state.writable}
+            onChange={(event) => { controller.setAutoSync(event.target.checked) }}
+          />
+          <span className={styles['catalogSyncLabel']}>{t('autoSync')}</span>
+        </label>
+        {statusSyncText(state, t) === null
+          ? null
+          : (
+            <p className={styles['catalogSyncStatus']} role="status">
+              {statusSyncText(state, t)}
+            </p>
+          )}
+      </div>
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
       {savedIdentity === undefined
         ? null

@@ -261,6 +261,13 @@ export interface LlmModelDiscoveryRequest {
   api?: string
   /** Credential for this interrogation alone; the harness never stores it. */
   apiKey?: string
+  /**
+   * Interrogate the endpoint's own listing even when the route's adapter ships
+   * a catalog answer. A catalog refresh wants the endpoint's current list — the
+   * point of the action — so the catalog short-circuit would defeat it.
+   * Providers that always answer from a catalog ignore the flag.
+   */
+  forceLive?: boolean
 }
 
 /** Provider-side discovery request with operation-local cancellation attached. */

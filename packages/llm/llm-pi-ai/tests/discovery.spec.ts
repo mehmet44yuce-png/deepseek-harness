@@ -7,6 +7,7 @@ import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
+import { catalogProvider } from '../src/catalog.ts'
 
 const servers: Server[] = []
 /** Credential variables a test set, cleared so the next one starts unset. */
@@ -91,6 +92,40 @@ describe('catalog-route model discovery', () => {
   it('needs no endpoint for a route the catalog describes', async () => {
     const ctx = await harness()
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+  })
+
+  it('forceLive interrogates a catalog route over the wire instead of the registry', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }),
+    })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', {
+      provider: 'deepseek',
+      baseURL: server.url,
+      forceLive: true,
+    })
+
+    expect(models.map(model => model.id)).toEqual(['from-the-endpoint'])
+    expect(server.paths).toEqual(['/models'])
+  })
+
+  it("forceLive with no baseURL reaches the catalog provider's own base URL", async () => {
+    const ctx = await harness()
+    const requested: string[] = []
+    vi.stubGlobal('fetch', (url: unknown) => {
+      requested.push(String(url))
+      return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'live' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    })
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'nvidia', forceLive: true })
+
+    expect(models.map(model => model.id)).toEqual(['live'])
+    const fallback = catalogProvider('nvidia')?.baseUrl
+    expect(requested).toEqual([`${fallback ?? ''}/models`])
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {
