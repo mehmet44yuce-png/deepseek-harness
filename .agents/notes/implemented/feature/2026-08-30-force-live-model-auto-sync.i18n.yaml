@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-30-force-live-model-auto-sync.md
+2026-08-30-force-live-model-auto-sync.md: 6a67eed7fb8ef3083b768bbf641115adc3cbed5f
+2026-08-30-force-live-model-auto-sync.zh.md: 52dd075b8c9b9fc6825503507b516762b4439ca6
