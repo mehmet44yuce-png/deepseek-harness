@@ -635,9 +635,9 @@ describe('endpoint interrogation', () => {
     openEditor('openai')
 
     fireEvent.click(screen.getByText(en.fetchModels))
-    await screen.findByText(en.fetchTitle)
+    const dialog = await screen.findByRole('dialog')
     expect(screen.queryByRole('checkbox', { name: 'Fresh' })).toBeNull()
-    const boxes = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
     expect(boxes.map(box => box.checked)).toEqual([true, false])
     fireEvent.click(screen.getByRole<HTMLInputElement>('checkbox', { name: 'fresh' }))
     fireEvent.click(screen.getByText(en.fetchAdopt))
@@ -839,8 +839,8 @@ describe('endpoint interrogation', () => {
     openEditor('openai')
 
     fireEvent.click(screen.getByText(en.fetchModels))
-    await screen.findByText(en.fetchTitle)
-    const boxes = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    const dialog = await screen.findByRole('dialog')
+    const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
     const first = boxes[0] as HTMLInputElement
     fireEvent.click(first)
     fireEvent.click(first)
