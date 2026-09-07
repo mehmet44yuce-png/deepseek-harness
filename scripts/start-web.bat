@@ -44,9 +44,13 @@ echo.
 echo        Ilk acilis 1-2 dakika surebilir, asagida akan satirlar normaldir.
 echo        Tarayici hazir olunca kendiliginden acilacak - BEKLEYIN.
 echo        Bu pencere acik kaldigi surece sunucu calisir; kapatmak icin Ctrl+C.
+echo        Beklenmedik sekilde kapanirsa bu pencere kendini otomatik yeniden baslatir.
 echo        Log: %DSH_LOG%
 echo.
 
+set "DSH_FAILCOUNT=0"
+
+:runloop
 rem `--no-open` plus our own opener: dsh's built-in open and a second opener here
 rem would race and produce two tabs, and only this one is guaranteed to use the
 rem tokenised URL from the log (a token-less URL just answers 401).
@@ -55,11 +59,23 @@ start "" /min powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-web
 node "%~dp0run-and-log.mjs" "%DSH_LOG%" pnpm dsh web --no-open
 set "DSH_RC=%errorlevel%"
 
-rem 3221225786 = 0xC000013A, the console's Ctrl+C code: a deliberate stop, not a fault.
+rem 3221225786 = 0xC000013A, the console's Ctrl+C/close code. We can't tell a
+rem deliberate Ctrl+C apart from the window being killed some other way, so we
+rem restart automatically — a genuinely intentional stop just means closing
+rem this window for good, which cancels the restart too.
 if "%DSH_RC%"=="3221225786" (
+  set /a DSH_FAILCOUNT+=1
   echo.
-  echo Sunucu Ctrl+C ile durduruldu.
-  exit /b 0
+  echo [%date% %time%] Sunucu durdu ^(Ctrl+C/kapanma kodu^). Yeniden baslatiliyor... ^(deneme %DSH_FAILCOUNT%^)
+  echo Gercekten durdurmak istiyorsaniz bu pencereyi kapatin.
+  if %DSH_FAILCOUNT% geq 10 (
+    echo.
+    echo [DUR] 10 kez ust uste durdu, olasi bir sorun var - otomatik yeniden baslatma durduruldu.
+    pause
+    exit /b 1
+  )
+  timeout /t 3 /nobreak >nul
+  goto runloop
 )
 
 if not "%DSH_RC%"=="0" (
