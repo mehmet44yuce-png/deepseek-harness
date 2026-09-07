@@ -37,6 +37,8 @@ export const en = {
   'back': 'Back',
   'brand.localBuild': 'DSH Local Build',
   'workspace.defaultName': 'Default workspace',
+  'brand.peakPricing': 'Peak pricing',
+  'brand.offpeakPricing': 'Off-peak pricing',
   'unknown': 'Unknown',
   'none': 'None',
   'truncated': 'Truncated',
