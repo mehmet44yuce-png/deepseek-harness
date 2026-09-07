@@ -154,6 +154,23 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
             </div>
           </span>
         </span>
+        <span
+          class="brandPricing"
+          role="status"
+          title="Peak pricing"
+        >
+          <span
+            aria-hidden="true"
+            class="dot"
+            data-state="error"
+            style="width: 10px; height: 10px;"
+          />
+          <span
+            class="visuallyHidden"
+          >
+            Peak pricing
+          </span>
+        </span>
       </button>
       <button
         aria-label="Collapse sidebar"
@@ -282,6 +299,23 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
                 </span>
               </span>
             </div>
+          </span>
+        </span>
+        <span
+          class="brandPricing"
+          role="status"
+          title="高峰计费"
+        >
+          <span
+            aria-hidden="true"
+            class="dot"
+            data-state="error"
+            style="width: 10px; height: 10px;"
+          />
+          <span
+            class="visuallyHidden"
+          >
+            高峰计费
           </span>
         </span>
       </button>

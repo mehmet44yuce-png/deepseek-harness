@@ -176,6 +176,23 @@
   letter-spacing: 0;
 }
 
+/* DeepSeek pricing status dot beside the brand name (peak/off-peak billing). */
+.brandPricing {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .iconButton {
   flex: none;
   display: inline-flex;

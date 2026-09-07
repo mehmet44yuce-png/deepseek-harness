@@ -31,6 +31,8 @@ export const en = {
   'expand': 'Expand',
   'back': 'Back',
   'brand.localBuild': 'DSH Local Build',
+  'brand.peakPricing': 'Peak pricing',
+  'brand.offpeakPricing': 'Off-peak pricing',
   'unknown': 'Unknown',
   'none': 'None',
   'truncated': 'Truncated',

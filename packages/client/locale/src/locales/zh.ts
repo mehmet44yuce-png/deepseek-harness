@@ -29,6 +29,8 @@ export const zh = {
   'expand': '展开',
   'back': '返回',
   'brand.localBuild': 'DSH 本地构建',
+  'brand.peakPricing': '高峰计费',
+  'brand.offpeakPricing': '低谷计费',
   'unknown': '未知',
   'none': '无',
   'truncated': '已截断',
