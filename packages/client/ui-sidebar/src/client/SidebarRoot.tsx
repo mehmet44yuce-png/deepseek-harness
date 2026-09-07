@@ -20,13 +20,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineMedium, IconNewChatOutlineRegular,
-  IconPanelLeftOutlineRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, ShortcutKeys, Toast, Tooltip, useModalLayer,
+  IconPanelLeftOutlineRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, ShortcutKeys, StateDot, Toast, Tooltip, useModalLayer,
   writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SidebarPanelActionsOwnerProps, SidebarPanelMetadata, SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps,
 } from './contract/slots.ts'
+import { deepseekPricingTier } from './deepseek-pricing.ts'
+import type { DeepseekPricingTier } from './deepseek-pricing.ts'
 import { FIXED_PANEL_ID } from './panel-pins.ts'
 import css from './SidebarRoot.module.css'
 
@@ -40,6 +42,9 @@ const COLLAPSE_SETTLE_MS = 150
  * edge — on the way to the conversation, or around a portalled menu.
  */
 const SCROLLBAR_LINGER_MS = 2000
+
+/** Re-evaluate DeepSeek pricing at most once a minute (peak windows start on whole hours). */
+const PRICING_TICK_MS = 60_000
 
 /** Format complete-build metadata for the local brand badge. */
 function localBuildVersion(): string | undefined {
@@ -279,6 +284,28 @@ export function SidebarRoot({
     </Tooltip>
   )
 
+  // DeepSeek peak/off-peak billing flips only on whole-hour UTC boundaries, so a
+  // 60s re-evaluation keeps the indicator current; the same-value bail-out means a
+  // tick that does not change the tier renders nothing.
+  const [pricingTier, setPricingTier] = useState<DeepseekPricingTier>(
+    () => deepseekPricingTier(new Date()),
+  )
+  useEffect(() => {
+    const evaluate = (): void => {
+      const next = deepseekPricingTier(new Date())
+      setPricingTier(previous => previous === next ? previous : next)
+    }
+    const timer = window.setInterval(evaluate, PRICING_TICK_MS)
+    return () => { window.clearInterval(timer) }
+  }, [])
+  const pricingLabel = pricingTier === 'peak' ? t('brand.peakPricing') : t('brand.offpeakPricing')
+  const pricing = (
+    <span className={css.brandPricing} role="status" title={pricingLabel}>
+      <StateDot state={pricingTier === 'peak' ? 'error' : 'done'} />
+      <span className={css.visuallyHidden}>{pricingLabel}</span>
+    </span>
+  )
+
   return (
     <div
       ref={column}
@@ -334,7 +361,7 @@ export function SidebarRoot({
             </span>
           )
           return darwinDesktop || !canStartSession
-            ? <span className={clsx(css.brand, css.wide)}>{identity}</span>
+            ? <span className={clsx(css.brand, css.wide)}>{identity}{pricing}</span>
             : (
               <button
                 type="button"
@@ -347,6 +374,7 @@ export function SidebarRoot({
                 }}
               >
                 {identity}
+                {pricing}
               </button>
             )
         })()}
