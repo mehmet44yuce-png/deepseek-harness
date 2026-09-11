@@ -2,10 +2,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SidebarRootComponentProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+
+// Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
+const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
+const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
 
 const t: SidebarRootComponentProps['t'] = key =>
   (en as Record<string, string>)[key] ?? (commonEn as Record<string, string>)[key] ?? key
@@ -21,7 +26,9 @@ function mount(now: Date) {
   vi.useFakeTimers({ now })
   return render(<SidebarRoot
     collapsed={false} width={300}
-    useSessions={neverHook} useSessionPendingInteraction={useSessionPendingInteraction} useWorkspaces={neverHook}
+    useSessions={neverHook} useSessionPendingInteraction={useSessionPendingInteraction}
+    usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
+    useResource={useResource} useWorkspaces={neverHook}
     startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
     renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
       options?.fallback ?? null) as SidebarRootComponentProps['renderSlot']}
