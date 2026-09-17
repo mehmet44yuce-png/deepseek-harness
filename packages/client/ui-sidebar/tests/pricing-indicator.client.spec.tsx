@@ -16,9 +16,9 @@ const t: SidebarRootComponentProps['t'] = key =>
   (en as Record<string, string>)[key] ?? (commonEn as Record<string, string>)[key] ?? key
 
 const neverHook = (() => { throw new Error('shell must not read global hooks') }) as never
-type AttentionSnapshot = Parameters<Parameters<SidebarRootComponentProps['useSessionPendingInteraction']>[0]>[0]
+type AttentionSnapshot = Parameters<Parameters<SidebarRootComponentProps['useSessionStatus']>[0]>[0]
 const noAttention: AttentionSnapshot = new Map()
-const useSessionPendingInteraction: SidebarRootComponentProps['useSessionPendingInteraction'] = selector => selector(noAttention)
+const useSessionStatus: SidebarRootComponentProps['useSessionStatus'] = selector => selector(noAttention)
 
 const PRICING_TICK_MS = 60_000
 
@@ -26,7 +26,7 @@ function mount(now: Date) {
   vi.useFakeTimers({ now })
   return render(<SidebarRoot
     collapsed={false} width={300}
-    useSessions={neverHook} useSessionPendingInteraction={useSessionPendingInteraction}
+    useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
     usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
     useResource={useResource} useWorkspaces={neverHook}
     startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
