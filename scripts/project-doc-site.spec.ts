@@ -153,14 +153,21 @@ describe('publishableImage', () => {
   it('refuses a target whose real path escapes the repository', () => {
     // Publication copies the bytes onto the site, so a reference reaching a
     // build-machine file must not be treated as an image the repository owns.
+    // A directory junction carries the escape: Windows refuses a file symlink
+    // without SeCreateSymbolicLinkPrivilege.
     const { root } = fixture()
     const outside = mkdtempSync(join(tmpdir(), 'dsh-doc-site-outside-'))
     roots.push(outside)
     writeFileSync(join(outside, 'secret.png'), 'not really a png\n')
-    symlinkSync(join(outside, 'secret.png'), join(root, 'packages/linked.png'))
+    const linked = join(root, 'linked-packages')
+    symlinkSync(outside, linked, 'junction')
 
-    expect(publishableImage(join(root, 'packages/linked.png'), realpathSync(root))).toBeUndefined()
-    expect(publishableImage(join(outside, 'secret.png'), realpathSync(root))).toBeUndefined()
+    try {
+      expect(publishableImage(join(linked, 'secret.png'), realpathSync(root))).toBeUndefined()
+      expect(publishableImage(join(outside, 'secret.png'), realpathSync(root))).toBeUndefined()
+    } finally {
+      unlinkSync(linked)
+    }
   })
 
   it('refuses a directory', () => {
