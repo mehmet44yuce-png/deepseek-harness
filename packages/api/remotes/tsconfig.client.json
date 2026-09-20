@@ -52,6 +52,9 @@
       "path": "../../host/plugin-inventory"
     },
     {
+      "path": "../../host/git-update"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {
