@@ -17,7 +17,7 @@ if %errorlevel% equ 0 (
 where node >nul 2>&1
 if %errorlevel% neq 0 (
   echo [HATA] node PATH uzerinde bulunamadi. Node.js kurulu mu?
-  pause
+  if not defined DSH_GIZLI pause
   exit /b 1
 )
 
@@ -32,7 +32,7 @@ if %errorlevel% neq 0 (
   echo.
   echo Yapilandirma dosyasi: %USERPROFILE%\.dsh\profiles\web\cordis.patch.yml
   echo Yukaridaki HATA satirlarini duzeltmeden sunucu acilmaz.
-  pause
+  if not defined DSH_GIZLI pause
   exit /b 1
 )
 
@@ -54,7 +54,10 @@ set "DSH_FAILCOUNT=0"
 rem `--no-open` plus our own opener: dsh's built-in open and a second opener here
 rem would race and produce two tabs, and only this one is guaranteed to use the
 rem tokenised URL from the log (a token-less URL just answers 401).
-start "" /min powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-web-when-ready.ps1" -Port %DSH_PORT% -LogPath "%DSH_LOG%" -TimeoutSeconds 300
+rem DSH_GIZLI=1 (Startup klasorundeki gizli VBS): /b ile ayni gizli konsolda calis, pencere acma.
+set "DSH_START=/min"
+if defined DSH_GIZLI set "DSH_START=/b"
+start "" %DSH_START% powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0open-web-when-ready.ps1" -Port %DSH_PORT% -LogPath "%DSH_LOG%" -TimeoutSeconds 300
 
 node "%~dp0run-and-log.mjs" "%DSH_LOG%" pnpm dsh web --no-open
 set "DSH_RC=%errorlevel%"
@@ -71,7 +74,7 @@ if "%DSH_RC%"=="3221225786" (
   if %DSH_FAILCOUNT% geq 10 (
     echo.
     echo [DUR] 10 kez ust uste durdu, olasi bir sorun var - otomatik yeniden baslatma durduruldu.
-    pause
+    if not defined DSH_GIZLI pause
     exit /b 1
   )
   timeout /t 3 /nobreak >nul
@@ -89,7 +92,7 @@ if not "%DSH_RC%"=="0" (
   echo Onceki log  : %DSH_LOG%.prev
   echo Profil      : %USERPROFILE%\.dsh\profiles\web\cordis.patch.yml
   echo Ayarlar     : %USERPROFILE%\.dsh\settings.yaml
-  pause
+  if not defined DSH_GIZLI pause
 )
 
 exit /b %DSH_RC%
