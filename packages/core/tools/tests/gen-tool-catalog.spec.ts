@@ -39,7 +39,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'stagehand_act', 'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot', 'stagehand_tabs',
       'str_replace_editor', 'subagent', 'subagent_oar', 'team_task_create',
       'team_task_get', 'team_task_list', 'team_task_update', 'terminal_close', 'terminal_list',
-      'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write',
+      'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'typesafe_decide',
       'update_goal', 'wait_agent', 'web_fetch', 'web_search', 'workflow', 'working_directory', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
