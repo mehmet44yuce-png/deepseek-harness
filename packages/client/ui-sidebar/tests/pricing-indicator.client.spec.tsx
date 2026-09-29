@@ -24,15 +24,28 @@ const PRICING_TICK_MS = 60_000
 
 function mount(now: Date) {
   vi.useFakeTimers({ now })
-  return render(<SidebarRoot
-    collapsed={false} width={300}
-    useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
-    usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])}
-    useResource={useResource} useWorkspaces={neverHook}
-    startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
-    renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
-      options?.fallback ?? null) as SidebarRootComponentProps['renderSlot']}
-  />)
+  // Upstream shells also read a keyboard-shortcut catalog. The fixture supplies
+  // that hook outside the typed props so it stays valid on both sides of the
+  // change, which keeps this local spec compiling across upstream updates.
+  const props = {
+    collapsed: false,
+    width: 300,
+    useSessions: neverHook,
+    useSessionStatus,
+    useSessionRetainInfo: neverHook,
+    usePanelInfo,
+    selectPanel: () => {},
+    usePanels: (selector: (panels: readonly never[]) => unknown) => selector([]),
+    useShortcuts: (selector: (rows: readonly never[]) => unknown) => selector([]),
+    useResource,
+    useWorkspaces: neverHook,
+    startSession: vi.fn(),
+    toggleSidebar: vi.fn(),
+    t,
+    renderSlot: ((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
+      options?.fallback ?? null) as SidebarRootComponentProps['renderSlot'],
+  } as unknown as SidebarRootComponentProps
+  return render(<SidebarRoot {...props} />)
 }
 
 afterEach(() => {
