@@ -37,7 +37,7 @@ Web 客户端调用 `gitUpdate/status` 读取检出的分支、上游引用、�
 
 变基会在不停下的情况下化解两类冲突。git 的 rerere 在此前对同一改动变基时记录的解决方案会被重放，因此与上游冲突的本地改动只需手动解决一次。仅限于由工具再生成的文件（`pnpm-lock.yaml`、翻译配对 `*.i18n.yaml` 记录与测试 `__snapshots__`）的冲突取上游一侧。`rebase` 步骤的细节会列出以这两种方式化解的路径。其他任何冲突都会中止变基、恢复暂存，并在 `message` 中列出冲突路径。
 
-`updated` 结果以一个 `restart` 步骤结束。启动器设置了 `DSH_SUPERVISED=1` 的宿主（仓库的 `scripts/start-web.bat` 会设置）会在回复后不久请求退出码 `75`；启动器随后在没有宿主占用文件时运行 `pnpm install` 与 `pnpm run build`，并重新启动宿主。没有监督进程时该步骤被跳过，并列出需要手动运行的命令。
+`updated` 结果以一个 `restart` 步骤结束。启动器设置了 `DSH_SUPERVISED=1` 的宿主（仓库的 `scripts/start-web.bat` 会设置）会在回复后不久请求退出码 `75`；启动器随后在没有宿主占用文件时运行 `pnpm install`、`pnpm run clean` 与 `pnpm run build`，并重新启动宿主。没有监督进程时该步骤被跳过，并列出需要手动运行的命令。
 
 ### 配置
 
