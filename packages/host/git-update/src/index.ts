@@ -47,6 +47,8 @@ export interface Config {
   skipPushHooks?: boolean
   /** Milliseconds before one git command is terminated. */
   timeoutMs?: number
+  /** Milliseconds the push may take; it runs the repository's pre-push hook, which can build the workspace. */
+  pushTimeoutMs?: number
   /** In-memory stdout cap for one git command. */
   outputMaxBytes?: number
 }
@@ -67,6 +69,7 @@ export class GitUpdateService extends TypertRemoteService {
     pushRemote: z.string().required(false),
     skipPushHooks: z.boolean().default(false),
     timeoutMs: z.number().step(1).min(1_000).default(120_000),
+    pushTimeoutMs: z.number().step(1).min(1_000).default(900_000),
     outputMaxBytes: z.number().step(1).min(1_024).default(16_384),
   })
   private readonly configuration: Config
@@ -142,6 +145,7 @@ export class GitUpdateService extends TypertRemoteService {
       options: resolved,
       remote: options.remote ?? this.configuration.remote ?? 'origin',
       skipPushHooks: this.configuration.skipPushHooks ?? false,
+      pushTimeoutMs: this.configuration.pushTimeoutMs ?? 900_000,
       now: new Date(),
     }, signal)
     return result.outcome === 'updated' ? this.restartAfter(result) : result

@@ -49,6 +49,7 @@ Web 客户端调用 `gitUpdate/status` 读取检出的分支、上游引用、�
 | `pushRemote` | 未设置 | 完成后推送到的远程；缺省表示跳过推送。 |
 | `skipPushHooks` | `false` | 推送是否绕过仓库的 pre-push 钩子。 |
 | `timeoutMs` | `120000` | 单个 git 命令被终止前的毫秒数。 |
+| `pushTimeoutMs` | `900000` | 推送（含仓库的 pre-push 钩子）可用的毫秒数；超时的推送成为失败的 `push` 步骤，而不是失败的更新。 |
 | `outputMaxBytes` | `16384` | 单个 git 命令的内存 stdout 上限。 |
 
 ### 失败

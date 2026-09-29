@@ -104,6 +104,7 @@ function update(f: Fixture) {
     options: {},
     remote: 'origin',
     skipPushHooks: false,
+    pushTimeoutMs: 60_000,
     now: new Date('2026-01-01T00:00:00.000Z'),
   }, signal)
 }
@@ -180,6 +181,34 @@ describe('runUpdate conflict settlement', { timeout: 60_000 }, () => {
     // The dropped lockfile edit stays reachable through the working-tree backup.
     expect(result.workTreeBackupTag).toBeDefined()
     expect(f.git(f.local, 'show', `${result.workTreeBackupTag ?? ''}:pnpm-lock.yaml`)).toBe('lock: reinstalled')
+  })
+
+  it('reports a push that cannot finish as a failed step and still counts the update', async () => {
+    const f = fixture({ 'feature.ts': 'export const a = 1\n' })
+    commit(f, f.upstream, 'upstream change', { 'notes.md': 'upstream\n' })
+    commit(f, f.local, 'local change', { 'feature.ts': 'export const a = 2\n' })
+    const pushTimeouts: (number | undefined)[] = []
+    const timingOut = {
+      run: (args: readonly string[], options: GitRunOptions): Promise<GitRunResult> => {
+        if (args[0] !== 'push') return f.runner.run(args, options)
+        pushTimeouts.push(options.timeoutMs)
+        return Promise.reject(new Error('git push timed out after 60000ms'))
+      },
+    }
+
+    const result = await runUpdate(timingOut as unknown as GitRunner, {
+      cwd: f.local,
+      options: { pushRemote: 'origin' },
+      remote: 'origin',
+      skipPushHooks: false,
+      pushTimeoutMs: 60_000,
+      now: new Date('2026-01-01T00:00:00.000Z'),
+    }, signal)
+
+    expect(result.outcome).toBe('updated')
+    expect(result.steps.at(-1)).toEqual({ name: 'push', status: 'failed', detail: 'git push timed out after 60000ms' })
+    expect(pushTimeouts).toEqual([60_000])
+    expect(f.git(f.local, 'log', '--format=%s', '-2')).toBe('local change\nupstream change')
   })
 
   it('leaves the work tree untouched when there is nothing to rebase onto', async () => {
