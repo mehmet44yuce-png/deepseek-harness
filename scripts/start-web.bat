@@ -115,6 +115,10 @@ echo        Log: %DSH_REBUILD_LOG%
 echo [%date% %time%] pnpm install > "%DSH_REBUILD_LOG%"
 call pnpm install --no-frozen-lockfile >> "%DSH_REBUILD_LOG%" 2>&1
 if errorlevel 1 echo [UYARI] pnpm install basarisiz, ayrinti: %DSH_REBUILD_LOG%
+rem Outputs of files the update removed or rewrote can outlive them and break
+rem the bundler, so the rebuild starts from a clean tree of build outputs.
+echo [%date% %time%] pnpm run clean >> "%DSH_REBUILD_LOG%"
+call pnpm run clean >> "%DSH_REBUILD_LOG%" 2>&1
 echo [%date% %time%] pnpm run build >> "%DSH_REBUILD_LOG%"
 call pnpm run build >> "%DSH_REBUILD_LOG%" 2>&1
 if errorlevel 1 echo [UYARI] pnpm run build basarisiz, ayrinti: %DSH_REBUILD_LOG%

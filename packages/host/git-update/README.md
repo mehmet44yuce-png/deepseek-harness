@@ -37,7 +37,7 @@ Call `gitUpdate/status` to display the current relation and `gitUpdate/update` t
 
 The rebase settles two kinds of conflict without stopping. A resolution git's rerere recorded during an earlier rebase of the same change is replayed, so a local change that conflicts with upstream is resolved once by hand and never again. A conflict confined to files a tool regenerates (`pnpm-lock.yaml`, translation-pairing `*.i18n.yaml` records, and test `__snapshots__`) takes the upstream side. The `rebase` step detail names the paths settled either way. Any other conflict aborts the rebase, restores the stash, and lists the conflicting paths in `message`.
 
-An `updated` outcome ends with a `restart` step. A Host whose launcher set `DSH_SUPERVISED=1` (the repository's `scripts/start-web.bat` does) requests exit code `75` shortly after replying; the launcher then runs `pnpm install` and `pnpm run build` while no Host holds the files open, and starts the Host again. Without a supervisor the step is skipped and names the commands to run by hand.
+An `updated` outcome ends with a `restart` step. A Host whose launcher set `DSH_SUPERVISED=1` (the repository's `scripts/start-web.bat` does) requests exit code `75` shortly after replying; the launcher then runs `pnpm install`, `pnpm run clean`, and `pnpm run build` while no Host holds the files open, and starts the Host again. Without a supervisor the step is skipped and names the commands to run by hand.
 
 ### Configuration
 
