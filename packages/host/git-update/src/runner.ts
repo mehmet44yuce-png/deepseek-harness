@@ -29,6 +29,8 @@ export interface GitRunOptions {
   readonly signal: AbortSignal
   /** Permit git's own credential prompt; fetch and push need it for an authenticated remote. */
   readonly allowPrompt?: boolean
+  /** Per-command override of the runner timeout; a push also runs the repository's pre-push hook. */
+  readonly timeoutMs?: number
 }
 
 /** Bounds every git command runs under. */
@@ -55,7 +57,8 @@ export class GitRunner {
    * @throws when the command times out, is aborted, or cannot spawn.
    */
   async run(args: readonly string[], options: GitRunOptions): Promise<GitRunResult> {
-    const timeout = AbortSignal.timeout(this.limits.timeoutMs)
+    const limitMs = options.timeoutMs ?? this.limits.timeoutMs
+    const timeout = AbortSignal.timeout(limitMs)
     const signal = AbortSignal.any([options.signal, timeout])
     const handle = this.subprocess.spawn({
       argv: [this.executable, ...args],
@@ -77,7 +80,7 @@ export class GitRunner {
     })
     const outcome = await handle.done
     if (signal.aborted) {
-      throw new Error('git ' + args.join(' ') + ' ' + (timeout.aborted ? 'timed out after ' + String(this.limits.timeoutMs) + 'ms' : 'was aborted'))
+      throw new Error('git ' + args.join(' ') + ' ' + (timeout.aborted ? 'timed out after ' + String(limitMs) + 'ms' : 'was aborted'))
     }
     /* v8 ignore start -- collect-mode stdio always yields both readers. */
     const stdout = handle.collected.stdout?.readFrom(0) ?? { text: '', lossy: false }

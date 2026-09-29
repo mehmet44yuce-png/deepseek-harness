@@ -59,6 +59,7 @@ function request(cwd: string): UpdateRequest {
     options: {},
     remote: 'origin',
     skipPushHooks: false,
+    pushTimeoutMs: 60_000,
     now: new Date('2026-01-01T00:00:00.000Z'),
   }
 }

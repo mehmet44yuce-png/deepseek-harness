@@ -1471,6 +1471,8 @@ export interface Config {
   skipPushHooks?: boolean
   /** Milliseconds before one git command is terminated. */
   timeoutMs?: number
+  /** Milliseconds the push may take; it runs the repository's pre-push hook, which can build the workspace. */
+  pushTimeoutMs?: number
   /** In-memory stdout cap for one git command. */
   outputMaxBytes?: number
 }

@@ -217,7 +217,21 @@ async function backupWorkTree(git: GitRunner, repository: string, head: string, 
  * @returns the reported push step.
  */
 async function pushBranch(
-  git: GitRunner, cwd: string, remote: string, branch: string, skipHooks: boolean, signal: AbortSignal,
+  git: GitRunner, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
+): Promise<GitUpdateStep> {
+  try {
+    return await pushLeased(git, cwd, remote, branch, skipHooks, timeoutMs, signal)
+  } catch (error: unknown) {
+    // The branch is already rebased when the push runs, so a push that times out
+    // or cannot spawn is a failed step, not a failed update: the Host still restarts.
+    if (signal.aborted) throw error
+    return { name: 'push', status: 'failed', detail: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** The leased push itself; runner failures propagate to {@link pushBranch}. */
+async function pushLeased(
+  git: GitRunner, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
 ): Promise<GitUpdateStep> {
   const listed = await git.run(['ls-remote', '--heads', remote, 'refs/heads/' + branch], { cwd, signal, allowPrompt: true })
   const remoteSha = listed.exitCode === 0 ? (lines(listed.stdout)[0] ?? '').split('\t')[0] ?? '' : ''
@@ -225,7 +239,7 @@ async function pushBranch(
     ? '--force-with-lease'
     : '--force-with-lease=refs/heads/' + branch + ':' + remoteSha
   const args = ['push', ...skipHooks ? ['--no-verify'] : [], lease, remote, branch + ':' + branch]
-  const result = await git.run(args, { cwd, signal, allowPrompt: true })
+  const result = await git.run(args, { cwd, signal, allowPrompt: true, timeoutMs })
   return result.exitCode === 0
     ? { name: 'push', status: 'ok', detail: remote + '/' + branch }
     : { name: 'push', status: 'failed', detail: diagnostic(result) }
@@ -241,6 +255,8 @@ export interface UpdateRequest {
   readonly remote: string
   /** Whether the push bypasses the repository's pre-push hook. */
   readonly skipPushHooks: boolean
+  /** Milliseconds the push may take, pre-push hook included. */
+  readonly pushTimeoutMs: number
   /** Attempt timestamp; injected so a test can assert tag names. */
   readonly now: Date
 }
@@ -380,7 +396,9 @@ export async function runUpdate(git: GitRunner, request: UpdateRequest, signal: 
   await restore()
 
   if (request.options.pushRemote !== undefined) {
-    steps.push(await pushBranch(git, facts.repository, request.options.pushRemote, facts.branch, request.skipPushHooks, signal))
+    steps.push(await pushBranch(
+      git, facts.repository, request.options.pushRemote, facts.branch, request.skipPushHooks, request.pushTimeoutMs, signal,
+    ))
   }
 
   const finalFacts = await readRepositoryFacts(git, facts.repository, signal)
