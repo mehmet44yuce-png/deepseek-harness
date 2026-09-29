@@ -49,6 +49,7 @@ An `updated` outcome ends with a `restart` step. A Host whose launcher set `DSH_
 | `pushRemote` | unset | Remote the finished branch is pushed to; absent skips the push. |
 | `skipPushHooks` | `false` | Whether the push bypasses the repository's pre-push hook. |
 | `timeoutMs` | `120000` | Milliseconds before one git command is terminated. |
+| `pushTimeoutMs` | `900000` | Milliseconds the push may take, including the repository's pre-push hook; a push that runs out becomes a failed `push` step, not a failed update. |
 | `outputMaxBytes` | `16384` | In-memory stdout cap for one git command. |
 
 ### Failures
