@@ -160,7 +160,7 @@ export class GitUpdateService extends TypertRemoteService {
         steps: [...result.steps, {
           name: 'restart',
           status: 'skipped',
-          detail: 'no supervising launcher: run pnpm install && pnpm run build, then restart the harness',
+          detail: 'no supervising launcher: run pnpm install && pnpm run clean && pnpm run build, then restart the harness',
         }],
       }
     }
