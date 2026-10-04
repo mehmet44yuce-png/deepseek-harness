@@ -560,6 +560,7 @@
     { "path": "./packages/experimental/webhook" },
     { "path": "./packages/experimental/webhook-github" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/typesafe/tool-typesafe" },
     { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/preset/agent-preset-registry" },
     { "path": "./packages/preset/agent-preset" },
