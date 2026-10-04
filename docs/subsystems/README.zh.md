@@ -15,6 +15,7 @@
 | [goal.md](goal.zh.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
 | [schedule.md](schedule.zh.md) | Host 拥有的提醒记录、持久转换、活动和已结束视图与普通对话交付 |
 | [todo.md](todo.zh.md) | todo 包的整列表条目类型、持久事件所有权和投影 |
+| [typesafe.md](typesafe.zh.md) | TypeSafe System One 工具：其请求、答案变体，以及它解析的凭据层 |
 | [deliverables.md](deliverables.zh.md) | 一轮交给用户的东西：`present` 声明的 `PresentedFile` 交付，以及由 git 快照得出、由 Host 提供的 `WorkspaceChangesSummary` 改动摘要 |
 | [commands.md](commands.zh.md) | 人类命令注册表服务：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.zh.md) | 完整的 `SessionEventMap` 变体目录、`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
@@ -31,6 +32,7 @@
 | [user-questions.md](user-questions.zh.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、提供方 API、错误分类体系 |
 | [approval.md](approval.zh.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计事件和 answerer 约定 |
 | [office-to-pdf.md](office-to-pdf.zh.md) | 已授权的 Office 到 PDF 转换、原生/WASM 引擎与有界共享复用 |
+| [git-update.md](git-update.zh.md) | 宿主检出更新 Remote：`GitUpdateStatus`/`GitUpdateOptions`/`GitUpdateResult`、在备份标签之后的变基，以及可选的 fork 推送 |
 | [attachment.md](attachment.zh.md) | 持久图片标识与元数据、校验输入、经校验读取，以及 `AttachmentStore` seam |
 | [shell.md](shell.zh.md) | shell 执行器 seam：`ShellExecRequest`/`Spec`、`ShellRunResult`、后台 `ShellProcess` 句柄 |
 | [subprocess.md](subprocess.zh.md) | 子进程 seam：完全显式的 `SubprocessSpawnSpec`、基于偏移的输出读取器、不含分类的 `SubprocessOutcome`，以及受管 `DSH_*` 环境词汇 |

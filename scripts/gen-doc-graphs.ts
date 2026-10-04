@@ -180,6 +180,11 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Authorized Office bytes are converted on the Host using the declared native target engine, or Node WASM when no native target is declared.',
   },
   {
+    key: 'gitUpdate', pkg: 'host-git-update', title: 'Host checkout update Remote',
+    mode: 'core', consumers: ['api-remotes', 'client-ui-settings-git-update'],
+    note: 'Reads the Host checkout relation and rebases it behind backup tags; consumers reach the service through the generated Remote namespace rather than a direct call.',
+  },
+  {
     key: 'attachments',
     pkg: 'attachment',
     title: 'Durable binary attachment storage',

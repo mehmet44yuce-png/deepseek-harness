@@ -1170,6 +1170,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'gitUpdate',
+    summary: 'Keeps the checkout current with its upstream without discarding local commits.',
+    description: 'Keeps the checkout current with its upstream without discarding local commits.',
+    methods: [
+      {
+        signature: '@Remote(\'status\') async status(signal: AbortSignal): Promise<GitUpdateStatus>',
+        description: 'Read the checkout\'s current relation to its upstream ref without touching the network.',
+        parameters: [{ name: 'signal', description: 'carrier cancellation.' }],
+        returns: 'the locally known status.',
+        throws: ['a `git-update/not-a-repository` failure when the directory is not inside a git repository.'],
+      },
+      {
+        signature: '@Remote(\'update\') async update(options: GitUpdateOptions, signal: AbortSignal): Promise<GitUpdateResult>',
+        description: 'Fetch upstream, rebase the branch onto it behind backup tags, and optionally push.',
+        parameters: [{ name: 'options', description: 'per-call overrides for the configured remote, upstream branch, and push remote.' }, { name: 'signal', description: 'carrier cancellation.' }],
+        returns: 'the outcome, the steps taken, and every backup tag created.',
+        throws: ['a `git-update/not-a-repository` failure when the directory is not inside a git repository.'],
+      },
+    ],
+  },
+  {
     key: 'goals',
     summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
     description: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
@@ -5327,6 +5348,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GenericResultView',
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'GitUpdateOptions',
+    declaration: 'export interface GitUpdateOptions {\n    readonly remote?: string;\n    readonly upstreamBranch?: string;\n    readonly pushRemote?: string;\n}',
+  },
+  {
+    name: 'GitUpdateOutcome',
+    declaration: 'export type GitUpdateOutcome = \'up-to-date\' | \'updated\' | \'conflict\' | \'refused\' | \'failed\';',
+  },
+  {
+    name: 'GitUpdateResult',
+    declaration: 'export interface GitUpdateResult {\n    readonly outcome: GitUpdateOutcome;\n    readonly before?: GitUpdateStatus;\n    readonly after?: GitUpdateStatus;\n    readonly steps: readonly GitUpdateStep[];\n    readonly headBackupTag?: string;\n    readonly workTreeBackupTag?: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'GitUpdateStatus',
+    declaration: 'export interface GitUpdateStatus {\n    readonly repository: string;\n    readonly branch: string;\n    readonly upstream: string;\n    readonly ahead: number;\n    readonly behind: number;\n    readonly dirty: boolean;\n    readonly untracked: readonly string[];\n    readonly head: string;\n    readonly upstreamHead: string;\n}',
+  },
+  {
+    name: 'GitUpdateStep',
+    declaration: 'export interface GitUpdateStep {\n    readonly name: \'working-tree-backup\' | \'stash\' | \'fetch\' | \'head-backup\' | \'rebase\' | \'stash-restore\' | \'push\';\n    readonly status: \'ok\' | \'skipped\' | \'failed\';\n    readonly detail: string;\n}',
   },
   {
     name: 'GoalActivation',
