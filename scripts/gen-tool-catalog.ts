@@ -65,6 +65,7 @@ import * as StagehandBrowserTools from '@deepseek-ai/dsh-experimental-browser-us
 import type TeamService from '@deepseek-ai/dsh-experimental-agent-team'
 import * as ToolTeam from '@deepseek-ai/dsh-experimental-tool-agent-team'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolTypesafe from '@deepseek-ai/dsh-tool-typesafe'
 import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import * as PluginManagerTools from '@deepseek-ai/dsh-plugin-manager/tools'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
@@ -608,6 +609,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-typesafe',
+    dir: 'tool-typesafe',
+    source: 'packages/typesafe/tool-typesafe/src/index.ts',
+    requires: ['ctx.tools', 'a TypeSafe API key from the credentials service or the launching environment'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The key resolves per call, so the catalog boots the tool with its defaults.
+      await ctx.plugin(ToolTypesafe, {})
+    },
+    note:
+      'typesafe_decide sends one state and its typed questions to TypeSafe System One and returns the structured answers unchanged; the request, the answer vocabulary, and the credential layers are the package README.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

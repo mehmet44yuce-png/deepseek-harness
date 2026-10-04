@@ -42,6 +42,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`, `job_list`, `job_output` | `ctx.tools`, `ctx.jobs`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-job controller: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the controller that arms producers' `ctx.jobs.start()`. |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`, `list_agents`, `send_message`, `spawn_teammate`, `team_task_create`, `team_task_get`, `team_task_list`, `team_task_update`, `wait_agent` | `ctx.tools`, `ctx.systemPrompt`, `ctx.agentTeams`, `an exact live Team member Agent` | `tool/call`, `team/member`, `team/message/queued`, `team/message/delivered`, `team/task`, `tool/result` | - | All nine tools are scoped to implicit Team Leads and durable teammates. The shipped dsh-base bundle keeps the package disabled; the documented Agent Teams profile patch enables it while disabling the legacy continuable-child control names. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
+| `@deepseek-ai/dsh-tool-typesafe` | `typesafe_decide` | `ctx.tools`, `a TypeSafe API key from the credentials service or the launching environment` | `tool/call`, `tool/result` | - | typesafe_decide sends one state and its typed questions to TypeSafe System One and returns the structured answers unchanged; the request, the answer vocabulary, and the credential layers are the package README. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
@@ -2554,6 +2555,135 @@ Record and update a task list to plan multi-step work and show progress; skip it
 Source: [`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
 todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.
+
+<a id="deepseek-aidsh-tool-typesafe"></a>
+
+## `@deepseek-ai/dsh-tool-typesafe`
+
+### `typesafe_decide`
+
+Evaluate a state against typed questions with the TypeSafe System One model (Jev) and get structured answers the next step can use directly. Ask several narrow questions in one call: every question is judged against the same state independently and in parallel, so adding questions barely changes response time. Use `choice` to pick one option from a labelled set, where `criteria` maps each option to the situation it describes; `score` to rate the state against ordered level descriptions in `criteria`; and `noul` for a yes/no question that returns the probability of yes. A `noul` value is a probability, not a grade: ask a `score` question when you need a position on a scale. Every question needs a unique `id`, and each answer comes back under that id. Prefer this over guessing a classification, probability, or rating. Choice and score answers carry `confidence`: report it, and treat a low-confidence answer as uncertain instead of decided.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "state": {
+      "description": "The content the questions judge: text, or structured JSON when the questions refer to fields. Include only the context the questions need."
+    },
+    "questions": {
+      "type": "array",
+      "description": "Questions to judge against `state`. Each is evaluated on its own, so ask one narrow thing per question instead of one broad question.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Pick one option from `criteria`.",
+                "const": "choice"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "object",
+                "description": "Every option the answer may choose, mapped to the situation that option describes.",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions",
+              "criteria"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Answer a yes/no question with the probability of yes.",
+                "const": "noul"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "object",
+                "description": "Optional descriptions of what yes and no mean, keyed `true` and `false`.",
+                "additionalProperties": false,
+                "properties": {
+                  "true": {
+                    "description": "What yes means."
+                  },
+                  "false": {
+                    "description": "What no means."
+                  }
+                }
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Score the state against ordered levels.",
+                "const": "score"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "array",
+                "description": "Level descriptions from lowest to highest; the answer scores against them.",
+                "items": {}
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions",
+              "criteria"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "state",
+    "questions"
+  ]
+}
+```
+
+Source: [`packages/typesafe/tool-typesafe/src/index.ts`](../packages/typesafe/tool-typesafe/src/index.ts)
+
+typesafe_decide sends one state and its typed questions to TypeSafe System One and returns the structured answers unchanged; the request, the answer vocabulary, and the credential layers are the package README.
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

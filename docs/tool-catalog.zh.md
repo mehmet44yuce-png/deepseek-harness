@@ -46,6 +46,7 @@
 | `@deepseek-ai/dsh-tool-jobs` | `job_kill`、`job_list`、`job_output` | `ctx.tools`、`ctx.jobs`、`ctx.systemPrompt` | `tool/call`、`tool/result`、`user/message via agent.inject() for background completion notices` | - | 与任务种类无关的后台任务控制器：后台 bash 命令、PTY 发送和 subagent 都通过相同的 3 个工具读取、列出和终止。加载该插件会挂接控制器，从而启用生产方的 `ctx.jobs.start()`。 |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | `interrupt_agent`、`list_agents`、`send_message`、`spawn_teammate`、`team_task_create`、`team_task_get`、`team_task_list`、`team_task_update`、`wait_agent` | `ctx.tools`、`ctx.systemPrompt`、`ctx.agentTeams`、`an exact live Team member Agent` | `tool/call`、`team/member`、`team/message/queued`、`team/message/delivered`、`team/task`、`tool/result` | - | 这 9 个工具限定于隐式 Team Lead 与持久 teammate 作用域。随产品发布的 dsh-base bundle 默认禁用该包；文档中的 Agent Teams profile patch 会启用它，并禁用旧 continuable child 的同名控制工具。 |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`、`owning Agent session` | `tool/call`、`todo/write`、`tool/result` | - | todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。 |
+| `@deepseek-ai/dsh-tool-typesafe` | `typesafe_decide` | `ctx.tools`、`来自凭据服务或启动环境的 TypeSafe API 密钥` | `tool/call`、`tool/result` | - | typesafe_decide 把一份状态及其类型化问题发送给 TypeSafe System One，并原样返回结构化答案；请求、答案词汇与凭据层见包 README。 |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
@@ -2561,6 +2562,135 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 来源：[`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts)
 
 todo_write 是会话所有的状态；UI 将最新的 todo/write 事件渲染为检查清单。`allowParallelInProgress` 是没有默认值的必填项，因此本目录明确选择 `true`，对应描述允许同时存在多个 `in_progress` 项。选择 `false` 的部署会获得同一工具，但描述会要求只能有 1 个活动任务。
+
+<a id="deepseek-aidsh-tool-typesafe"></a>
+
+## `@deepseek-ai/dsh-tool-typesafe`
+
+### `typesafe_decide`
+
+针对一份状态，用 TypeSafe System One 模型（Jev）提出类型化问题，并取回下一步可直接使用的结构化答案。一次调用可提出多个窄问题：每个问题都独立、并行地针对同一状态判断，因此增加问题几乎不改变响应时间。用 `choice` 从带标签的集合中选出一项，其中 `criteria` 把每个选项映射到它描述的情形；用 `score` 按 `criteria` 中从低到高的等级描述评分；用 `noul` 提出是/否问题并返回为“是”的概率。每个问题都需要唯一的 `id`，答案按同一 id 返回。优先使用它，而不是自行猜测分类、概率或评分。`choice` 与 `score` 的答案带有 `confidence`：请报告它，并把低置信度的答案视为不确定，而不是已确定。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "state": {
+      "description": "The content the questions judge: text, or structured JSON when the questions refer to fields. Include only the context the questions need."
+    },
+    "questions": {
+      "type": "array",
+      "description": "Questions to judge against `state`. Each is evaluated on its own, so ask one narrow thing per question instead of one broad question.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Pick one option from `criteria`.",
+                "const": "choice"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "object",
+                "description": "Every option the answer may choose, mapped to the situation that option describes.",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions",
+              "criteria"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Answer a yes/no question with the probability of yes.",
+                "const": "noul"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "object",
+                "description": "Optional descriptions of what yes and no mean, keyed `true` and `false`.",
+                "additionalProperties": false,
+                "properties": {
+                  "true": {
+                    "description": "What yes means."
+                  },
+                  "false": {
+                    "description": "What no means."
+                  }
+                }
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id for this question; its answer returns under the same id."
+              },
+              "type": {
+                "type": "string",
+                "description": "Score the state against ordered levels.",
+                "const": "score"
+              },
+              "instructions": {
+                "description": "The question to answer about `state`: a string, or structured JSON that holds the question in one field and the data it refers to in others."
+              },
+              "criteria": {
+                "type": "array",
+                "description": "Level descriptions from lowest to highest; the answer scores against them.",
+                "items": {}
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "instructions",
+              "criteria"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "state",
+    "questions"
+  ]
+}
+```
+
+来源：[`packages/typesafe/tool-typesafe/src/index.ts`](../packages/typesafe/tool-typesafe/src/index.ts)
+
+typesafe_decide 把一份状态及其类型化问题发送给 TypeSafe System One，并原样返回结构化答案；请求、答案词汇与凭据层见包 README。
 
 <a id="deepseek-aidsh-tool-workflow"></a>
 

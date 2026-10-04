@@ -1450,6 +1450,35 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-frontend-static -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-git-update -->
+<a id="deepseek-aidsh-host-git-update"></a>
+
+## `@deepseek-ai/dsh-host-git-update`
+
+- `inject`: `subprocess`
+- `source`: [`packages/host/git-update/src/index.ts:25`](../packages/host/git-update/src/index.ts)
+
+```ts config-catalog
+/** Deployment-varying bounds and identities for every update this service runs. */
+export interface Config {
+  /** Directory the repository is discovered from; absent means the Host process working directory. */
+  repository?: string
+  /** Remote the update fetches and rebases onto. */
+  remote?: string
+  /** Upstream branch name; absent means the remote's reported default branch. */
+  upstreamBranch?: string
+  /** Remote the finished branch is pushed to; absent disables the push. */
+  pushRemote?: string
+  /** Whether the push bypasses the repository's pre-push hook. */
+  skipPushHooks?: boolean
+  /** Milliseconds before one git command is terminated. */
+  timeoutMs?: number
+  /** In-memory stdout cap for one git command. */
+  outputMaxBytes?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-git-update -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-host-open-in-app -->
 <a id="deepseek-aidsh-host-open-in-app"></a>
 
@@ -3934,6 +3963,49 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-todo -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-typesafe -->
+<a id="deepseek-aidsh-tool-typesafe"></a>
+
+## `@deepseek-ai/dsh-tool-typesafe`
+
+- `inject`: `tools`
+- `source`: [`packages/typesafe/tool-typesafe/src/index.ts:54`](../packages/typesafe/tool-typesafe/src/index.ts)
+
+```ts config-catalog
+/** Model-facing TypeSafe tool configuration. */
+export interface Config {
+  /**
+   * Explicit API key, highest precedence. Prefer `apiKeyEnv` so the key stays out of composition
+   * files; resolution falls back to the credential reference when this is omitted.
+   */
+  apiKey?: string
+  /**
+   * Credential reference naming the API key. Resolution order: `apiKey`, then this reference
+   * through `ctx.credentials`, then the launching environment. Defaults to `TYPESAFE_API_KEY`.
+   */
+  apiKeyEnv?: string
+  /** Endpoint base; `/systemone` is appended. Defaults to the public TypeSafe API. */
+  baseURL?: string
+  /** Model TypeSafe evaluates with. Defaults to `jev-latest`. */
+  model?: string
+  /** Per-request timeout in milliseconds for one attempt. Defaults to 40000. */
+  timeoutMs?: number
+  /** Retries after the first attempt; `0` disables retrying. Defaults to 2. */
+  maxRetries?: number
+  /** First retry delay in milliseconds; it doubles per attempt. Defaults to 500. */
+  retryBackoffMs?: number
+  /** Retry delay ceiling in milliseconds. Defaults to 5000. */
+  retryBackoffMaxMs?: number
+  /** Fractional jitter applied to each retry delay, from 0 to 1. Defaults to 0.25. */
+  retryJitter?: number
+  /** Whether a provider `Retry-After` header replaces the computed delay. Defaults to true. */
+  respectRetryAfter?: boolean
+  /** Ceiling for a provider-requested delay, in milliseconds. Defaults to 60000. */
+  retryAfterMaxMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-typesafe -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-web -->
 <a id="deepseek-aidsh-tool-web"></a>
 
@@ -4019,7 +4091,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tools`
 
 - `inject`: `systemPrompt`
-- `source`: [`packages/core/tools/src/index.ts:674`](../packages/core/tools/src/index.ts)
+- `source`: [`packages/core/tools/src/index.ts:675`](../packages/core/tools/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
@@ -4384,6 +4456,7 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-settings` | — | [`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | — | [`packages/client/ui-settings-agent-loop/src/index.ts`](../packages/client/ui-settings-agent-loop/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-general` | — | [`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-git-update` | — | [`packages/client/ui-settings-git-update/src/index.ts`](../packages/client/ui-settings-git-update/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | — | [`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugins` | — | [`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-session-log` | — | [`packages/client/ui-settings-session-log/src/index.ts`](../packages/client/ui-settings-session-log/src/index.ts) |
