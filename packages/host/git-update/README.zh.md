@@ -33,7 +33,11 @@ Web 客户端调用 `gitUpdate/status` 读取检出的分支、上游引用、�
 
 ### update 做什么
 
-`update` 在改动任何东西之前拒绝分离 HEAD 与已在进行变基的检出。否则它会备份脏的或有未跟踪文件的工作区、暂存它们、带修剪地获取远程、把分支变基到上游引用、恢复暂存，并在配置了 `pushRemote` 时推送。`outcome` 为 `up-to-date`、`updated`、`conflict`、`refused` 或 `failed`；`steps` 记录每一步的 `ok`、`skipped` 或 `failed` 状态及其细节；`before` 与 `after` 携带尝试前后的状态；`headBackupTag` 与 `workTreeBackupTag` 命名保存更新前状态的标签。冲突会中止变基、恢复暂存，并在 `message` 中列出冲突路径。
+`update` 在改动任何东西之前拒绝分离 HEAD 与已在进行变基的检出。否则它会带修剪地获取远程，并且只在分支落后于上游引用时：备份脏的或有未跟踪文件的工作区、丢弃本地对 `pnpm-lock.yaml` 的修改（重新安装会再生成锁文件，备份会保留这些修改）、暂存其余改动、把分支变基到上游引用、恢复暂存，并在配置了 `pushRemote` 时推送。`outcome` 为 `up-to-date`、`updated`、`conflict`、`refused` 或 `failed`；`steps` 记录每一步的 `ok`、`skipped` 或 `failed` 状态及其细节；`before` 与 `after` 携带尝试前后的状态；`headBackupTag` 与 `workTreeBackupTag` 命名保存更新前状态的标签。
+
+变基会在不停下的情况下化解两类冲突。git 的 rerere 在此前对同一改动变基时记录的解决方案会被重放，因此与上游冲突的本地改动只需手动解决一次。仅限于由工具再生成的文件（`pnpm-lock.yaml`、翻译配对 `*.i18n.yaml` 记录与测试 `__snapshots__`）的冲突取上游一侧。`rebase` 步骤的细节会列出以这两种方式化解的路径。其他任何冲突都会中止变基、恢复暂存，并在 `message` 中列出冲突路径。
+
+`updated` 结果以一个 `restart` 步骤结束。启动器设置了 `DSH_SUPERVISED=1` 的宿主（仓库的 `scripts/start-web.bat` 会设置）会在回复后不久请求退出码 `75`；启动器随后在没有宿主占用文件时运行 `pnpm install` 与 `pnpm run build`，并重新启动宿主。没有监督进程时该步骤被跳过，并列出需要手动运行的命令。
 
 ### 配置
 
@@ -108,7 +112,7 @@ Typert 生成由 `./typert` 与 `./remote` 暴露的宿主与客户端 Remote �
 - **没有逐步进度**：`update` 是一次 unary 调用，结算时给出完整步骤列表，因此客户端只显示运行状态，而不是实时的步骤迁移。
 - **备份标签会累积**：每次移动分支或为脏工作区做快照的尝试都会创建 `backup/dsh-update-*` 标签，且没有任何清理。
 - **推送只覆盖一个分支**：只推送检出的分支并使用其自身名称；其他本地分支与标签留在本地。
-- **冲突的变基会被中止而不是解决**：结果会列出冲突路径并恢复更新前状态，就地解决冲突仍需手动完成。
+- **只有已记录或可再生成的冲突会自行化解**：没有 rerere 解决方案的源码冲突会中止变基并恢复更新前状态；在启用 `rerere.enabled` 的手动变基中解决一次后，下次更新即可重放。
 
 <a id="dev-note"></a>
 ### 开发备注
