@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { GitRunOptions, GitRunResult, GitRunner } from '../src/runner.ts'
+import type { GitRunOptions, GitRunResult, GitRunnerLike } from '../src/runner.ts'
 import { runUpdate } from '../src/sync.ts'
 
 const roots: string[] = []
@@ -37,7 +37,7 @@ function isolated(root: string): Record<string, string> {
 }
 
 /** Runs the real git executable, standing in for the subprocess-backed runner. */
-class LocalRunner {
+class LocalRunner implements GitRunnerLike {
   constructor(private readonly env: Readonly<Record<string, string>>) {}
 
   /**
@@ -99,7 +99,7 @@ const signal = new AbortController().signal
 
 /** Run one update attempt in the fixture's local repository. */
 function update(f: Fixture) {
-  return runUpdate(f.runner as unknown as GitRunner, {
+  return runUpdate(f.runner, {
     cwd: f.local,
     options: {},
     remote: 'origin',
@@ -188,7 +188,7 @@ describe('runUpdate conflict settlement', { timeout: 60_000 }, () => {
     commit(f, f.upstream, 'upstream change', { 'notes.md': 'upstream\n' })
     commit(f, f.local, 'local change', { 'feature.ts': 'export const a = 2\n' })
     const pushTimeouts: (number | undefined)[] = []
-    const timingOut = {
+    const timingOut: GitRunnerLike = {
       run: (args: readonly string[], options: GitRunOptions): Promise<GitRunResult> => {
         if (args[0] !== 'push') return f.runner.run(args, options)
         pushTimeouts.push(options.timeoutMs)
@@ -196,7 +196,7 @@ describe('runUpdate conflict settlement', { timeout: 60_000 }, () => {
       },
     }
 
-    const result = await runUpdate(timingOut as unknown as GitRunner, {
+    const result = await runUpdate(timingOut, {
       cwd: f.local,
       options: { pushRemote: 'origin' },
       remote: 'origin',
@@ -220,5 +220,58 @@ describe('runUpdate conflict settlement', { timeout: 60_000 }, () => {
     expect(result.outcome).toBe('up-to-date')
     expect(result.steps.map(step => step.name)).toEqual(['fetch', 'rebase'])
     expect(readFileSync(join(f.local, 'pnpm-lock.yaml'), 'utf8')).toBe('lock: reinstalled\n')
+  })
+
+  it('takes upstream for conflicting docs/module-graph files and preserves local work', async () => {
+    const f = fixture({
+      'docs/module-graph.md': 'graph root\n',
+      'docs/module-graph.zh.md': 'graph zh root\n',
+      'feature.ts': 'export const val = 1\n',
+    })
+    commit(f, f.upstream, 'upstream graph rebuild', {
+      'docs/module-graph.md': 'graph upstream\n',
+      'docs/module-graph.zh.md': 'graph zh upstream\n',
+    })
+    commit(f, f.local, 'local feature work', {
+      'docs/module-graph.md': 'graph local\n',
+      'docs/module-graph.zh.md': 'graph zh local\n',
+      'feature.ts': 'export const val = 2\n',
+    })
+
+    const result = await update(f)
+
+    expect(result.outcome).toBe('updated')
+    const rebaseStep = result.steps.find(step => step.name === 'rebase')
+    expect(rebaseStep?.status).toBe('ok')
+    expect(rebaseStep?.detail).toContain('took upstream for regenerated files')
+    expect(rebaseStep?.detail).toContain('docs/module-graph.md')
+    expect(rebaseStep?.detail).toContain('docs/module-graph.zh.md')
+    expect(readFileSync(join(f.local, 'docs/module-graph.md'), 'utf8')).toBe('graph upstream\n')
+    expect(readFileSync(join(f.local, 'docs/module-graph.zh.md'), 'utf8')).toBe('graph zh upstream\n')
+    expect(readFileSync(join(f.local, 'feature.ts'), 'utf8')).toBe('export const val = 2\n')
+    expect(f.git(f.local, 'log', '--format=%s', '-2')).toBe('local feature work\nupstream graph rebuild')
+  })
+
+  it('accumulates tsconfig.base.json additions via merge=union gitattribute', async () => {
+    const f = fixture({
+      '.gitattributes': 'tsconfig.base.json merge=union\n',
+      'tsconfig.base.json': '{\n  "paths": {\n    "root": ["./root"]\n  }\n}\n',
+    })
+    commit(f, f.upstream, 'upstream tsconfig alias', {
+      'tsconfig.base.json': '{\n  "paths": {\n    "root": ["./root"],\n    "upstream": ["./upstream"]\n  }\n}\n',
+    })
+    commit(f, f.local, 'local tsconfig alias', {
+      'tsconfig.base.json': '{\n  "paths": {\n    "root": ["./root"],\n    "local": ["./local"]\n  }\n}\n',
+    })
+
+    const result = await update(f)
+
+    expect(result.outcome).toBe('updated')
+    const rebaseStep = result.steps.find(step => step.name === 'rebase')
+    expect(rebaseStep?.status).toBe('ok')
+    const mergedTsconfig = readFileSync(join(f.local, 'tsconfig.base.json'), 'utf8')
+    expect(mergedTsconfig).toContain('"upstream": ["./upstream"]')
+    expect(mergedTsconfig).toContain('"local": ["./local"]')
+    expect(f.git(f.local, 'log', '--format=%s', '-2')).toBe('local tsconfig alias\nupstream tsconfig alias')
   })
 })

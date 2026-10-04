@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { GitRunOptions, GitRunResult, GitRunner } from '../src/runner.ts'
+import type { GitRunOptions, GitRunResult, GitRunnerLike } from '../src/runner.ts'
 import { runUpdate, type UpdateRequest } from '../src/sync.ts'
 
 /** Arguments and options the double recorded for one command. */
@@ -18,7 +18,7 @@ interface GitCall {
  * Every unscripted command fails, so a refusal that tried to mutate anything
  * would surface through its result instead of silently succeeding.
  */
-class ScriptedRunner {
+class ScriptedRunner implements GitRunnerLike {
   readonly calls: GitCall[] = []
 
   /** @param answers - settled result per space-joined argument list. */
@@ -82,7 +82,7 @@ const signal = new AbortController().signal
 describe('runUpdate refusals', () => {
   it('refuses a detached HEAD before it reads or changes anything else', async () => {
     const runner = new ScriptedRunner(facts('repo', 'HEAD', 'repo/.git'))
-    const result = await runUpdate(runner as unknown as GitRunner, request('repo'), signal)
+    const result = await runUpdate(runner, request('repo'), signal)
 
     expect(result).toMatchObject({
       outcome: 'refused',
@@ -103,7 +103,7 @@ describe('runUpdate refusals', () => {
     const gitDir = join(root, '.git')
     mkdirSync(join(gitDir, 'rebase-merge'), { recursive: true })
     const runner = new ScriptedRunner(facts(root, 'main', gitDir))
-    const result = await runUpdate(runner as unknown as GitRunner, request(root), signal)
+    const result = await runUpdate(runner, request(root), signal)
 
     expect(result).toMatchObject({
       outcome: 'refused',
@@ -114,5 +114,81 @@ describe('runUpdate refusals', () => {
     expect(heads).not.toContain('fetch')
     expect(heads).not.toContain('rebase')
     expect(heads).not.toContain('tag')
+  })
+
+  it('retries a hook-spawn crash once with --no-verify when pushing a remote', async () => {
+    const root = scratch()
+    const answers = new Map<string, GitRunResult>([
+      ...facts(root, 'main', join(root, '.git')),
+      ['fetch origin --prune', reply('')],
+      ['rev-parse --verify --quiet origin/main', reply('')],
+      ['rev-list --left-right --count origin/main...HEAD', reply('0\t0')],
+      ['rev-parse --short origin/main', reply('abc1234')],
+      ['ls-remote --heads fork refs/heads/main', reply('remotesha123\trefs/heads/main')],
+      [
+        'push --force-with-lease=refs/heads/main:remotesha123 fork main:main',
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr: '0 [main] bash (29380) *** fatal error - NtCreateDirectoryObject(\\BaseNamedObjects\\msys-2.0): 0xC0000022',
+          truncated: false,
+        },
+      ],
+      ['push --no-verify --force-with-lease=refs/heads/main:remotesha123 fork main:main', reply('')],
+    ])
+    const runner = new ScriptedRunner(answers)
+    const req: UpdateRequest = {
+      ...request(root),
+      options: { pushRemote: 'fork', upstreamBranch: 'main' },
+    }
+    const result = await runUpdate(runner, req, signal)
+
+    expect(result.outcome).toBe('up-to-date')
+    expect(result.steps.find(step => step.name === 'push')).toEqual({
+      name: 'push',
+      status: 'ok',
+      detail: 'fork/main',
+    })
+    const pushCalls = runner.calls.filter(call => call.args[0] === 'push')
+    expect(pushCalls).toHaveLength(2)
+    expect(pushCalls[0]?.args).toEqual(['push', '--force-with-lease=refs/heads/main:remotesha123', 'fork', 'main:main'])
+    expect(pushCalls[1]?.args).toEqual(['push', '--no-verify', '--force-with-lease=refs/heads/main:remotesha123', 'fork', 'main:main'])
+  })
+
+  it('does not retry when the initial push already skipped hooks', async () => {
+    const root = scratch()
+    const answers = new Map<string, GitRunResult>([
+      ...facts(root, 'main', join(root, '.git')),
+      ['fetch origin --prune', reply('')],
+      ['rev-parse --verify --quiet origin/main', reply('')],
+      ['rev-list --left-right --count origin/main...HEAD', reply('0\t0')],
+      ['rev-parse --short origin/main', reply('abc1234')],
+      ['ls-remote --heads fork refs/heads/main', reply('remotesha123\trefs/heads/main')],
+      [
+        'push --no-verify --force-with-lease=refs/heads/main:remotesha123 fork main:main',
+        {
+          exitCode: 1,
+          stdout: '',
+          stderr: '0 [main] bash (29380) *** fatal error - NtCreateDirectoryObject(\\BaseNamedObjects\\msys-2.0): 0xC0000022',
+          truncated: false,
+        },
+      ],
+    ])
+    const runner = new ScriptedRunner(answers)
+    const req: UpdateRequest = {
+      ...request(root),
+      options: { pushRemote: 'fork', upstreamBranch: 'main' },
+      skipPushHooks: true,
+    }
+    const result = await runUpdate(runner, req, signal)
+
+    expect(result.outcome).toBe('up-to-date')
+    expect(result.steps.find(step => step.name === 'push')).toEqual({
+      name: 'push',
+      status: 'failed',
+      detail: '0 [main] bash (29380) *** fatal error - NtCreateDirectoryObject(\\BaseNamedObjects\\msys-2.0): 0xC0000022',
+    })
+    const pushCalls = runner.calls.filter(call => call.args[0] === 'push')
+    expect(pushCalls).toHaveLength(1)
   })
 })
