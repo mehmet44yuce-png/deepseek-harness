@@ -1456,7 +1456,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-host-git-update`
 
 - `inject`: `subprocess`
-- `source`: [`packages/host/git-update/src/index.ts:25`](../packages/host/git-update/src/index.ts)
+- `source`: [`packages/host/git-update/src/index.ts:37`](../packages/host/git-update/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-varying bounds and identities for every update this service runs. */

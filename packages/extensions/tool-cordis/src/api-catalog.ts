@@ -5367,7 +5367,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GitUpdateStep',
-    declaration: 'export interface GitUpdateStep {\n    readonly name: \'working-tree-backup\' | \'stash\' | \'fetch\' | \'head-backup\' | \'rebase\' | \'stash-restore\' | \'push\';\n    readonly status: \'ok\' | \'skipped\' | \'failed\';\n    readonly detail: string;\n}',
+    declaration: 'export interface GitUpdateStep {\n    readonly name: \'working-tree-backup\' | \'lockfile\' | \'stash\' | \'fetch\' | \'head-backup\' | \'rebase\' | \'stash-restore\' | \'push\' | \'restart\';\n    readonly status: \'ok\' | \'skipped\' | \'failed\';\n    readonly detail: string;\n}',
   },
   {
     name: 'GoalActivation',

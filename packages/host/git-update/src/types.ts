@@ -38,7 +38,9 @@ export type GitUpdateOutcome = 'up-to-date' | 'updated' | 'conflict' | 'refused'
 /** One reported step of an update attempt. */
 export interface GitUpdateStep {
   /** Stable step name the Client renders copy for. */
-  readonly name: 'working-tree-backup' | 'stash' | 'fetch' | 'head-backup' | 'rebase' | 'stash-restore' | 'push'
+  readonly name:
+    | 'working-tree-backup' | 'lockfile' | 'stash' | 'fetch' | 'head-backup' | 'rebase' | 'stash-restore' | 'push'
+    | 'restart'
   /** Whether the step ran, was unnecessary, or failed. */
   readonly status: 'ok' | 'skipped' | 'failed'
   /** Observed detail, including raw git diagnostics for a failure. */

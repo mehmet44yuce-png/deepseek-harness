@@ -5,7 +5,12 @@ cd /d "%~dp0.."
 set "DSH_PORT=3080"
 set "DSH_LOG_DIR=%USERPROFILE%\.dsh\logs"
 set "DSH_LOG=%DSH_LOG_DIR%\start-web.log"
+set "DSH_REBUILD_LOG=%DSH_LOG_DIR%\update-rebuild.log"
 if not exist "%DSH_LOG_DIR%" mkdir "%DSH_LOG_DIR%" >nul 2>&1
+
+rem Tells the git-update plugin a supervisor is here: after a successful
+rem rebase it exits with 75 and the loop below reinstalls, rebuilds, and restarts.
+set "DSH_SUPERVISED=1"
 
 rem If the server is already running, only open the browser and exit.
 netstat -ano | findstr ":%DSH_PORT%" | findstr "LISTENING" >nul
@@ -26,6 +31,7 @@ rem Preflight. One bad plugin entry aborts the whole tree and the server never
 rem binds the port, which shows up in the browser as a chat that cannot start.
 rem Catching it here turns a silent crash into a readable message.
 rem ---------------------------------------------------------------------------
+:preflight
 echo [1/2] Yapilandirma kontrolu...
 node "%~dp0preflight-web.mjs" web
 if %errorlevel% neq 0 (
@@ -62,6 +68,11 @@ start "" %DSH_START% powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0o
 node "%~dp0run-and-log.mjs" "%DSH_LOG%" pnpm dsh web --no-open
 set "DSH_RC=%errorlevel%"
 
+rem 75 = the Settings > Update button rebased onto upstream. The new sources
+rem need their dependencies and build outputs, which is done here while no
+rem server holds the files open, then the preflight and server start again.
+if "%DSH_RC%"=="75" goto rebuild
+
 rem 3221225786 = 0xC000013A, the console's Ctrl+C/close code. We can't tell a
 rem deliberate Ctrl+C apart from the window being killed some other way, so we
 rem restart automatically — a genuinely intentional stop just means closing
@@ -96,3 +107,17 @@ if not "%DSH_RC%"=="0" (
 )
 
 exit /b %DSH_RC%
+
+:rebuild
+echo.
+echo [%date% %time%] Guncelleme alindi: bagimliliklar kuruluyor ve derleniyor...
+echo        Log: %DSH_REBUILD_LOG%
+echo [%date% %time%] pnpm install > "%DSH_REBUILD_LOG%"
+call pnpm install --no-frozen-lockfile >> "%DSH_REBUILD_LOG%" 2>&1
+if errorlevel 1 echo [UYARI] pnpm install basarisiz, ayrinti: %DSH_REBUILD_LOG%
+echo [%date% %time%] pnpm run build >> "%DSH_REBUILD_LOG%"
+call pnpm run build >> "%DSH_REBUILD_LOG%" 2>&1
+if errorlevel 1 echo [UYARI] pnpm run build basarisiz, ayrinti: %DSH_REBUILD_LOG%
+echo [%date% %time%] bitti >> "%DSH_REBUILD_LOG%"
+set "DSH_FAILCOUNT=0"
+goto preflight
