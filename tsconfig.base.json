@@ -414,6 +414,7 @@
       "@deepseek-ai/dsh-native-command/types": ["./packages/util/native-command/src/types.ts"],
       "@deepseek-ai/dsh-message-quotes/client": ["./packages/session/message-quotes/src/client/index.ts"],
       "@deepseek-ai/dsh-ptc-runtime-node/configuration": ["./packages/ptc-runtime/ptc-runtime-node/src/configuration.ts"],
+      "@deepseek-ai/dsh-client-ui-settings-git-update": ["./packages/client/ui-settings-git-update/src"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],
@@ -595,6 +596,7 @@
       "@deepseek-ai/dsh-tool-subagent-control": ["./packages/subagent/tool-subagent-control/src"],
       "@deepseek-ai/dsh-tool-terminal": ["./packages/experimental/tool-terminal/src"],
       "@deepseek-ai/dsh-tool-todo": ["./packages/todo/tool-todo/src"],
+      "@deepseek-ai/dsh-tool-typesafe": ["./packages/typesafe/tool-typesafe/src"],
       "@deepseek-ai/dsh-tool-web": ["./packages/web/tool-web/src"],
       "@deepseek-ai/dsh-tool-workflow": ["./packages/workflow/tool-workflow/src"],
       "@deepseek-ai/dsh-tool-working-directory": ["./packages/session/tool-working-directory/src"],

@@ -35,7 +35,7 @@ Web 客户端调用 `gitUpdate/status` 读取检出的分支、上游引用、�
 
 `update` 在改动任何东西之前拒绝分离 HEAD 与已在进行变基的检出。否则它会带修剪地获取远程，并且只在分支落后于上游引用时：备份脏的或有未跟踪文件的工作区、丢弃本地对 `pnpm-lock.yaml` 的修改（重新安装会再生成锁文件，备份会保留这些修改）、暂存其余改动、把分支变基到上游引用、恢复暂存，并在配置了 `pushRemote` 时推送。`outcome` 为 `up-to-date`、`updated`、`conflict`、`refused` 或 `failed`；`steps` 记录每一步的 `ok`、`skipped` 或 `failed` 状态及其细节；`before` 与 `after` 携带尝试前后的状态；`headBackupTag` 与 `workTreeBackupTag` 命名保存更新前状态的标签。
 
-变基会在不停下的情况下化解两类冲突。git 的 rerere 在此前对同一改动变基时记录的解决方案会被重放，因此与上游冲突的本地改动只需手动解决一次。仅限于由工具再生成的文件（`pnpm-lock.yaml`、翻译配对 `*.i18n.yaml` 记录与测试 `__snapshots__`）的冲突取上游一侧。`rebase` 步骤的细节会列出以这两种方式化解的路径。其他任何冲突都会中止变基、恢复暂存，并在 `message` 中列出冲突路径。
+变基会在不停下的情况下化解三类冲突。git 的 rerere 在此前对同一改动变基时记录的解决方案会被重放，因此与上游冲突的本地改动只需手动解决一次。仅限于由工具再生成的文件（`pnpm-lock.yaml`、翻译配对 `*.i18n.yaml` 记录、测试 `__snapshots__`，以及生成的 `docs/module-graph.md`、`docs/module-graph.zh.md` 与 `docs/tool-catalog.md`）的冲突取上游一侧，因为更新后的重建会从合并后的树重新生成它们。`tsconfig.base.json` 的冲突通过它的 `merge=union` 属性保留双方新增的别名条目。`rebase` 步骤的细节会列出以这三种方式化解的路径。其他任何冲突都会中止变基、恢复暂存，并在 `message` 中列出冲突路径。
 
 `updated` 结果以一个 `restart` 步骤结束。启动器设置了 `DSH_SUPERVISED=1` 的宿主（仓库的 `scripts/start-web.bat` 会设置）会在回复后不久请求退出码 `75`；启动器随后在没有宿主占用文件时运行 `pnpm install`、`pnpm run clean` 与 `pnpm run build`，并重新启动宿主。没有监督进程时该步骤被跳过，并列出需要手动运行的命令。
 
@@ -70,7 +70,7 @@ Web 客户端调用 `gitUpdate/status` 读取检出的分支、上游引用、�
 
 ### 安全推送
 
-推送先以 `ls-remote` 读取远程的分支头，然后使用固定到该值的 `--force-with-lease`，因此读取之后移动过的远程会拒绝推送，而不是被覆盖。`skipPushHooks` 会加上 `--no-verify`。
+推送先以 `ls-remote` 读取远程的分支头，然后使用固定到该值的 `--force-with-lease`，因此读取之后移动过的远程会拒绝推送，而不是被覆盖。`skipPushHooks` 会加上 `--no-verify`，而在 pre-push 钩子运行前崩溃（`*** fatal error`、msys 共享对象命名空间上的 `NtCreate`、`0xC0000022`）的推送会以 `--no-verify` 重试一次，跳过的只是从未运行的钩子，推送仍受 lease 保护。
 
 ### 源码映射
 
@@ -113,7 +113,8 @@ Typert 生成由 `./typert` 与 `./remote` 暴露的宿主与客户端 Remote �
 - **没有逐步进度**：`update` 是一次 unary 调用，结算时给出完整步骤列表，因此客户端只显示运行状态，而不是实时的步骤迁移。
 - **备份标签会累积**：每次移动分支或为脏工作区做快照的尝试都会创建 `backup/dsh-update-*` 标签，且没有任何清理。
 - **推送只覆盖一个分支**：只推送检出的分支并使用其自身名称；其他本地分支与标签留在本地。
-- **只有已记录或可再生成的冲突会自行化解**：没有 rerere 解决方案的源码冲突会中止变基并恢复更新前状态；在启用 `rerere.enabled` 的手动变基中解决一次后，下次更新即可重放。
+- **只有已记录或可再生成的冲突会自行化解**：没有 rerere 解决方案的源码冲突会中止变基并恢复更新前状态；在启用 `rerere.enabled` 的手动变基中解决一次后，下次更新即可重放。`tsconfig.base.json` 是例外：它的 `merge=union` 属性自动累加双方新增的别名条目。
+- **钩子外壳无法启动的推送会无钩重试一次**：Windows 上运行 git 钩子的 msys 垫片偶尔会在钩子代码运行前崩溃（`*** fatal error`、msys 共享对象命名空间上的 `NtCreate`、`0xC0000022`）；此时推送以 `--no-verify` 重试一次，跳过的只是从未运行的钩子，lease 仍保护推送本身。设置 `skipPushHooks: true` 可无条件绕过 pre-push 钩子。`!` 形式的 `credential.helper` 调用会自行启动 shell，不受此保护；它们以同样的签名表现为失败的 `push` 步骤。
 
 <a id="dev-note"></a>
 ### 开发备注

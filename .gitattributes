@@ -8,6 +8,10 @@
 
 *.pdf binary
 
+# Alias entries accumulate on both update sides; merge=union keeps each addition,
+# and `pnpm run gen-tsconfig-paths` rewrites the generated region afterwards.
+tsconfig.base.json merge=union
+
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true
 docs/persistence-changes/*.schema.json linguist-generated=true

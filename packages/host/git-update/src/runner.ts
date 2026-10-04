@@ -41,8 +41,19 @@ export interface GitLimits {
   readonly outputMaxBytes: number
 }
 
+/** Runner contract satisfied by both the subprocess runner and test doubles. */
+export interface GitRunnerLike {
+  /**
+   * Run one git command to completion.
+   * @param args - git arguments; never shell-interpreted.
+   * @param options - working directory, extra environment, cancellation, and prompt permission.
+   * @returns exit facts and the collected output.
+   */
+  run(args: readonly string[], options: GitRunOptions): Promise<GitRunResult>
+}
+
 /** Runs git with a scrubbed environment, a timeout, and bounded output. */
-export class GitRunner {
+export class GitRunner implements GitRunnerLike {
   constructor(
     private readonly subprocess: SubprocessRuntime,
     private readonly executable: string,

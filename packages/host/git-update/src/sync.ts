@@ -6,7 +6,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ok } from './runner.ts'
-import type { GitRunner } from './runner.ts'
+import type { GitRunnerLike } from './runner.ts'
 import type { GitUpdateOptions, GitUpdateResult, GitUpdateStatus, GitUpdateStep } from './types.ts'
 
 /** Newline-separated git output as non-empty lines. */
@@ -28,14 +28,17 @@ function diagnostic(result: { exitCode: number | null; stderr: string }): string
 const LOCKFILE = 'pnpm-lock.yaml'
 
 /**
- * Paths a tool regenerates (`pnpm install`, the translation-pairing recorder,
- * `vitest -u`), so a rebase conflict in one resolves to the upstream side
- * instead of stopping the update.
+ * Paths a tool regenerates (`pnpm install`, `scripts/gen-module-graph.ts`, the
+ * translation-pairing recorder, `vitest -u`), so a rebase conflict in one
+ * resolves to the upstream side instead of stopping the update.
  */
 const REGENERATED_PATHS: readonly RegExp[] = [
   /(^|\/)pnpm-lock\.yaml$/,
   /\.i18n\.yaml$/,
   /(^|\/)__snapshots__\/[^/]+\.snap$/,
+  /(^|\/)docs\/module-graph\.md$/,
+  /(^|\/)docs\/module-graph\.zh\.md$/,
+  /(^|\/)docs\/tool-catalog\.md$/,
 ]
 
 /**
@@ -46,6 +49,15 @@ const REBASE = ['-c', 'rerere.enabled=true', '-c', 'rerere.autoUpdate=true', '-c
 
 /** Environment that keeps every rebase step non-interactive. */
 const REBASE_ENV = { GIT_EDITOR: 'true' }
+
+/**
+ * Why a git command could not run its shell at all: a spawn crash, not a
+ * verdict from the hook. The msys shim that executes hooks occasionally dies
+ * (`*** fatal error - NtCreateDirectoryObject(\BaseNamedObjects\msys-2.0…)`,
+ * `0xC0000022`) before any hook code runs, so the push retries once without
+ * hooks and nothing a hook would have judged is lost.
+ */
+const SHELL_UNAVAILABLE = /\*\*\* fatal error|NtCreate|msys-2\.0/i
 
 /** Whether an interrupted rebase left state in this git directory. */
 function rebasing(gitDir: string): boolean {
@@ -71,7 +83,7 @@ type RebaseOutcome =
  * @returns the resolved paths on success, or the blocking paths on failure.
  */
 async function rebaseResolving(
-  git: GitRunner, repository: string, gitDir: string, upstream: string, maxStops: number, signal: AbortSignal,
+  git: GitRunnerLike, repository: string, gitDir: string, upstream: string, maxStops: number, signal: AbortSignal,
 ): Promise<RebaseOutcome> {
   const replayed = new Set<string>()
   const regenerated = new Set<string>()
@@ -135,7 +147,7 @@ interface UpstreamCounts {
  * @returns the observed facts.
  * @throws when the directory is not inside a git repository.
  */
-export async function readRepositoryFacts(git: GitRunner, cwd: string, signal: AbortSignal): Promise<RepositoryFacts> {
+export async function readRepositoryFacts(git: GitRunnerLike, cwd: string, signal: AbortSignal): Promise<RepositoryFacts> {
   const repository = ok(await git.run(['rev-parse', '--show-toplevel'], { cwd, signal }), 'git rev-parse --show-toplevel').stdout.trim()
   const branch = ok(await git.run(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, signal }), 'git rev-parse --abbrev-ref HEAD').stdout.trim()
   const gitDir = ok(await git.run(['rev-parse', '--absolute-git-dir'], { cwd, signal }), 'git rev-parse --absolute-git-dir').stdout.trim()
@@ -161,7 +173,7 @@ export async function readRepositoryFacts(git: GitRunner, cwd: string, signal: A
  * @param signal - caller cancellation.
  * @returns the remote's default branch, or `master` when the remote reports none.
  */
-export async function defaultBranch(git: GitRunner, cwd: string, remote: string, signal: AbortSignal): Promise<string> {
+export async function defaultBranch(git: GitRunnerLike, cwd: string, remote: string, signal: AbortSignal): Promise<string> {
   const symbolic = await git.run(['symbolic-ref', '--short', 'refs/remotes/' + remote + '/HEAD'], { cwd, signal })
   const name = symbolic.exitCode === 0 ? symbolic.stdout.trim() : ''
   if (name === '') return 'master'
@@ -176,7 +188,7 @@ export async function defaultBranch(git: GitRunner, cwd: string, remote: string,
  * @param signal - caller cancellation.
  * @returns ahead, behind, and the upstream's abbreviated commit id.
  */
-async function readCounts(git: GitRunner, cwd: string, upstream: string, signal: AbortSignal): Promise<UpstreamCounts> {
+async function readCounts(git: GitRunnerLike, cwd: string, upstream: string, signal: AbortSignal): Promise<UpstreamCounts> {
   const counts = ok(await git.run(['rev-list', '--left-right', '--count', upstream + '...HEAD'], { cwd, signal }), 'git rev-list').stdout.trim().split(/\s+/)
   const upstreamHead = ok(await git.run(['rev-parse', '--short', upstream], { cwd, signal }), 'git rev-parse upstream').stdout.trim()
   return { behind: Number(counts[0] ?? '0'), ahead: Number(counts[1] ?? '0'), upstreamHead }
@@ -191,7 +203,7 @@ async function readCounts(git: GitRunner, cwd: string, upstream: string, signal:
  * @param tag - tag that keeps the snapshot reachable.
  * @param signal - caller cancellation.
  */
-async function backupWorkTree(git: GitRunner, repository: string, head: string, tag: string, signal: AbortSignal): Promise<void> {
+async function backupWorkTree(git: GitRunnerLike, repository: string, head: string, tag: string, signal: AbortSignal): Promise<void> {
   const index = join(tmpdir(), 'dsh-git-update-' + randomUUID())
   const env = { GIT_INDEX_FILE: index }
   try {
@@ -217,7 +229,7 @@ async function backupWorkTree(git: GitRunner, repository: string, head: string, 
  * @returns the reported push step.
  */
 async function pushBranch(
-  git: GitRunner, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
+  git: GitRunnerLike, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
 ): Promise<GitUpdateStep> {
   try {
     return await pushLeased(git, cwd, remote, branch, skipHooks, timeoutMs, signal)
@@ -231,7 +243,7 @@ async function pushBranch(
 
 /** The leased push itself; runner failures propagate to {@link pushBranch}. */
 async function pushLeased(
-  git: GitRunner, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
+  git: GitRunnerLike, cwd: string, remote: string, branch: string, skipHooks: boolean, timeoutMs: number, signal: AbortSignal,
 ): Promise<GitUpdateStep> {
   const listed = await git.run(['ls-remote', '--heads', remote, 'refs/heads/' + branch], { cwd, signal, allowPrompt: true })
   const remoteSha = listed.exitCode === 0 ? (lines(listed.stdout)[0] ?? '').split('\t')[0] ?? '' : ''
@@ -240,6 +252,14 @@ async function pushLeased(
     : '--force-with-lease=refs/heads/' + branch + ':' + remoteSha
   const args = ['push', ...skipHooks ? ['--no-verify'] : [], lease, remote, branch + ':' + branch]
   const result = await git.run(args, { cwd, signal, allowPrompt: true, timeoutMs })
+  if (result.exitCode !== 0 && !skipHooks && SHELL_UNAVAILABLE.test(diagnostic(result))) {
+    // The hook's shell died while spawning; the same push retried once with
+    // --no-verify skips only a hook that never ran.
+    const retry = await git.run(['push', '--no-verify', lease, remote, branch + ':' + branch], { cwd, signal, allowPrompt: true, timeoutMs })
+    return retry.exitCode === 0
+      ? { name: 'push', status: 'ok', detail: remote + '/' + branch }
+      : { name: 'push', status: 'failed', detail: diagnostic(retry) }
+  }
   return result.exitCode === 0
     ? { name: 'push', status: 'ok', detail: remote + '/' + branch }
     : { name: 'push', status: 'failed', detail: diagnostic(result) }
@@ -287,7 +307,7 @@ function statusOf(
  * @param signal - caller cancellation.
  * @returns the outcome, the steps taken, and the backup tags created.
  */
-export async function runUpdate(git: GitRunner, request: UpdateRequest, signal: AbortSignal): Promise<GitUpdateResult> {
+export async function runUpdate(git: GitRunnerLike, request: UpdateRequest, signal: AbortSignal): Promise<GitUpdateResult> {
   const steps: GitUpdateStep[] = []
   const tagSuffix = stamp(request.now)
   const facts = await readRepositoryFacts(git, request.cwd, signal)
