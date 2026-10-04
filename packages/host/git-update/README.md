@@ -35,7 +35,7 @@ Call `gitUpdate/status` to display the current relation and `gitUpdate/update` t
 
 `update` refuses a detached HEAD and a checkout with a rebase already in progress before it changes anything. Otherwise it fetches the remote with pruning and, only when the branch is behind its upstream ref, backs up a dirty or untracked working tree, drops local `pnpm-lock.yaml` edits (the reinstall regenerates the lockfile, and the backup keeps them), stashes the rest, rebases the branch onto the upstream ref, restores the stash, and pushes when `pushRemote` is configured. `outcome` is `up-to-date`, `updated`, `conflict`, `refused`, or `failed`; `steps` records each step's `ok`, `skipped`, or `failed` status with its detail; `before` and `after` carry the status around the attempt; and `headBackupTag` and `workTreeBackupTag` name the tags holding the pre-update state.
 
-The rebase settles two kinds of conflict without stopping. A resolution git's rerere recorded during an earlier rebase of the same change is replayed, so a local change that conflicts with upstream is resolved once by hand and never again. A conflict confined to files a tool regenerates (`pnpm-lock.yaml`, translation-pairing `*.i18n.yaml` records, and test `__snapshots__`) takes the upstream side. The `rebase` step detail names the paths settled either way. Any other conflict aborts the rebase, restores the stash, and lists the conflicting paths in `message`.
+The rebase settles three kinds of conflict without stopping. A resolution git's rerere recorded during an earlier rebase of the same change is replayed, so a local change that conflicts with upstream is resolved once by hand and never again. A conflict confined to files a tool regenerates (`pnpm-lock.yaml`, translation-pairing `*.i18n.yaml` records, test `__snapshots__`, and the generated `docs/module-graph.md`, `docs/module-graph.zh.md`, and `docs/tool-catalog.md` pages) takes the upstream side, because the post-update rebuild regenerates them from the merged tree. A conflict in `tsconfig.base.json` accumulates both sides' alias entries through its `merge=union` attribute; run `pnpm run gen-tsconfig-paths` afterwards to rewrite its generated region. The `rebase` step detail names the paths settled either way. Any other conflict aborts the rebase, restores the stash, and lists the conflicting paths in `message`.
 
 An `updated` outcome ends with a `restart` step. A Host whose launcher set `DSH_SUPERVISED=1` (the repository's `scripts/start-web.bat` does) requests exit code `75` shortly after replying; the launcher then runs `pnpm install`, `pnpm run clean`, and `pnpm run build` while no Host holds the files open, and starts the Host again. Without a supervisor the step is skipped and names the commands to run by hand.
 
@@ -70,7 +70,7 @@ The engine keeps one rule: every destructive step is preceded by a backup that k
 
 ### Pushing safely
 
-The push first reads the remote's branch head with `ls-remote` and then uses `--force-with-lease` pinned to that value, so a remote that moved since the read refuses the push instead of being overwritten. `skipPushHooks` adds `--no-verify`.
+The push first reads the remote's branch head with `ls-remote` and then uses `--force-with-lease` pinned to that value, so a remote that moved since the read refuses the push instead of being overwritten. `skipPushHooks` adds `--no-verify`, and a push whose pre-push hook crashed before running (`*** fatal error`, `NtCreate` on the msys shared-object namespace, `0xC0000022`) retries once with `--no-verify`, skipping only a hook that never ran; the push stays lease-protected.
 
 ### Source map
 
@@ -113,7 +113,8 @@ None; this package neither assembles nor sends a provider request.
 - **No per-step progress** — `update` is one unary call that settles with the complete step list, so a client shows a running state rather than live step transitions.
 - **Backup tags accumulate** — every attempt that moves the branch or snapshots a dirty tree creates `backup/dsh-update-*` tags, and nothing prunes them.
 - **The push covers one branch** — only the checked-out branch is pushed, under its own name; other local branches and tags stay local.
-- **Only recorded or regenerated conflicts settle themselves** — a source conflict with no rerere resolution aborts the rebase and restores the pre-update state; resolving it once in a manual rebase with `rerere.enabled` lets the next update replay it.
+- **Only recorded or regenerated conflicts settle themselves** — a source conflict with no rerere resolution aborts the rebase and restores the pre-update state; resolving it once in a manual rebase with `rerere.enabled` lets the next update replay it. `tsconfig.base.json` is the exception: its `merge=union` attribute accumulates both sides' alias entries automatically.
+- **A push whose hook shell cannot spawn retries once without hooks** — on Windows the msys shim that runs git hooks occasionally dies (`*** fatal error`, `NtCreate` on the msys shared-object namespace, `0xC0000022`) before any hook code runs; the push then retries once with `--no-verify`, skipping only a hook that never ran. Set `skipPushHooks: true` to bypass pre-push hooks unconditionally. `!`-form `credential.helper` invocations spawn their own shell and are not covered; they surface as a failed `push` step with the same signature.
 
 <a id="dev-note"></a>
 ### Dev Note
