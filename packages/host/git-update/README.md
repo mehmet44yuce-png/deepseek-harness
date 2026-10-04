@@ -33,7 +33,11 @@ Call `gitUpdate/status` to display the current relation and `gitUpdate/update` t
 
 ### What update does
 
-`update` refuses a detached HEAD and a checkout with a rebase already in progress before it changes anything. Otherwise it backs up a dirty or untracked working tree, stashes it, fetches the remote with pruning, rebases the branch onto the upstream ref, restores the stash, and pushes when `pushRemote` is configured. `outcome` is `up-to-date`, `updated`, `conflict`, `refused`, or `failed`; `steps` records each step's `ok`, `skipped`, or `failed` status with its detail; `before` and `after` carry the status around the attempt; and `headBackupTag` and `workTreeBackupTag` name the tags holding the pre-update state. A conflict aborts the rebase, restores the stash, and lists the conflicting paths in `message`.
+`update` refuses a detached HEAD and a checkout with a rebase already in progress before it changes anything. Otherwise it fetches the remote with pruning and, only when the branch is behind its upstream ref, backs up a dirty or untracked working tree, drops local `pnpm-lock.yaml` edits (the reinstall regenerates the lockfile, and the backup keeps them), stashes the rest, rebases the branch onto the upstream ref, restores the stash, and pushes when `pushRemote` is configured. `outcome` is `up-to-date`, `updated`, `conflict`, `refused`, or `failed`; `steps` records each step's `ok`, `skipped`, or `failed` status with its detail; `before` and `after` carry the status around the attempt; and `headBackupTag` and `workTreeBackupTag` name the tags holding the pre-update state.
+
+The rebase settles two kinds of conflict without stopping. A resolution git's rerere recorded during an earlier rebase of the same change is replayed, so a local change that conflicts with upstream is resolved once by hand and never again. A conflict confined to files a tool regenerates (`pnpm-lock.yaml`, translation-pairing `*.i18n.yaml` records, and test `__snapshots__`) takes the upstream side. The `rebase` step detail names the paths settled either way. Any other conflict aborts the rebase, restores the stash, and lists the conflicting paths in `message`.
+
+An `updated` outcome ends with a `restart` step. A Host whose launcher set `DSH_SUPERVISED=1` (the repository's `scripts/start-web.bat` does) requests exit code `75` shortly after replying; the launcher then runs `pnpm install` and `pnpm run build` while no Host holds the files open, and starts the Host again. Without a supervisor the step is skipped and names the commands to run by hand.
 
 ### Configuration
 
@@ -108,7 +112,7 @@ None; this package neither assembles nor sends a provider request.
 - **No per-step progress** — `update` is one unary call that settles with the complete step list, so a client shows a running state rather than live step transitions.
 - **Backup tags accumulate** — every attempt that moves the branch or snapshots a dirty tree creates `backup/dsh-update-*` tags, and nothing prunes them.
 - **The push covers one branch** — only the checked-out branch is pushed, under its own name; other local branches and tags stay local.
-- **A conflicting rebase is aborted, not resolved** — the outcome names the conflicting paths and restores the pre-update state, and resolving the conflict in place stays manual.
+- **Only recorded or regenerated conflicts settle themselves** — a source conflict with no rerere resolution aborts the rebase and restores the pre-update state; resolving it once in a manual rebase with `rerere.enabled` lets the next update replay it.
 
 <a id="dev-note"></a>
 ### Dev Note

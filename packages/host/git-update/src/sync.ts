@@ -24,6 +24,84 @@ function diagnostic(result: { exitCode: number | null; stderr: string }): string
   return result.stderr.trim() === '' ? 'exit ' + String(result.exitCode) : result.stderr.trim()
 }
 
+/** The lockfile `pnpm install` rewrites after every update. */
+const LOCKFILE = 'pnpm-lock.yaml'
+
+/**
+ * Paths a tool regenerates (`pnpm install`, the translation-pairing recorder,
+ * `vitest -u`), so a rebase conflict in one resolves to the upstream side
+ * instead of stopping the update.
+ */
+const REGENERATED_PATHS: readonly RegExp[] = [
+  /(^|\/)pnpm-lock\.yaml$/,
+  /\.i18n\.yaml$/,
+  /(^|\/)__snapshots__\/[^/]+\.snap$/,
+]
+
+/**
+ * Rebase prefix: rerere replays any conflict resolution recorded by an earlier
+ * rebase and stages it, and the editor is a no-op so `--continue` never waits.
+ */
+const REBASE = ['-c', 'rerere.enabled=true', '-c', 'rerere.autoUpdate=true', '-c', 'core.editor=true', 'rebase']
+
+/** Environment that keeps every rebase step non-interactive. */
+const REBASE_ENV = { GIT_EDITOR: 'true' }
+
+/** Whether an interrupted rebase left state in this git directory. */
+function rebasing(gitDir: string): boolean {
+  return existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'))
+}
+
+/** How one rebase with automatic resolution ended. */
+type RebaseOutcome =
+  | { readonly ok: true; readonly replayed: readonly string[]; readonly regenerated: readonly string[] }
+  | { readonly ok: false; readonly conflicts: readonly string[]; readonly detail: string }
+
+/**
+ * Rebase onto upstream, settling each stop the rebase can settle on its own:
+ * rerere-replayed resolutions are already staged, and a conflict confined to
+ * regenerated paths takes the upstream side. A stop with any other conflicted
+ * path is left in place for the caller to abort.
+ * @param git - command runner.
+ * @param repository - absolute repository root.
+ * @param gitDir - git directory holding the rebase state.
+ * @param upstream - ref to rebase onto.
+ * @param maxStops - stops tolerated before the rebase counts as stuck.
+ * @param signal - caller cancellation.
+ * @returns the resolved paths on success, or the blocking paths on failure.
+ */
+async function rebaseResolving(
+  git: GitRunner, repository: string, gitDir: string, upstream: string, maxStops: number, signal: AbortSignal,
+): Promise<RebaseOutcome> {
+  const replayed = new Set<string>()
+  const regenerated = new Set<string>()
+  const run = (args: readonly string[]) => git.run(args, { cwd: repository, env: REBASE_ENV, signal })
+  const unmerged = async (): Promise<string[]> => lines((await run(['diff', '--name-only', '--diff-filter=U'])).stdout)
+  let result = await run([...REBASE, upstream])
+  for (let stops = 0; result.exitCode !== 0; stops += 1) {
+    for (const [, path] of (result.stdout + result.stderr).matchAll(/(?:Resolved|Staged) '(.+?)' using previous resolution/g)) {
+      if (path !== undefined) replayed.add(path)
+    }
+    const paths = await unmerged()
+    if (stops >= maxStops || !rebasing(gitDir)) return { ok: false, conflicts: paths, detail: diagnostic(result) }
+    const blocking = paths.filter(path => !REGENERATED_PATHS.some(pattern => pattern.test(path)))
+    if (blocking.length > 0) return { ok: false, conflicts: blocking, detail: diagnostic(result) }
+    for (const path of paths) {
+      // During a rebase "ours" is the upstream being rebased onto; a path it
+      // deleted has no side to check out, so the deletion is taken instead.
+      const taken = await run(['checkout', '--ours', '--', path])
+      ok(taken.exitCode === 0 ? await run(['add', '--', path]) : await run(['rm', '--quiet', '--', path]), 'git add ' + path)
+      regenerated.add(path)
+    }
+    result = await run([...REBASE, '--continue'])
+    // A commit the resolution emptied cannot be continued, only skipped.
+    if (result.exitCode !== 0 && /nothing to commit|No changes/i.test(result.stdout + result.stderr) && (await unmerged()).length === 0) {
+      result = await run([...REBASE, '--skip'])
+    }
+  }
+  return { ok: true, replayed: [...replayed], regenerated: [...regenerated] }
+}
+
 /** Repository facts an attempt reads before it changes anything. */
 export interface RepositoryFacts {
   /** Absolute repository top-level directory. */
@@ -71,7 +149,7 @@ export async function readRepositoryFacts(git: GitRunner, cwd: string, signal: A
     head,
     dirty: rows.some(row => !row.startsWith('??')),
     untracked: rows.filter(row => row.startsWith('??')).map(row => row.slice(3)),
-    rebaseInProgress: existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply')),
+    rebaseInProgress: rebasing(gitDir),
   }
 }
 
@@ -204,28 +282,26 @@ export async function runUpdate(git: GitRunner, request: UpdateRequest, signal: 
     return { outcome: 'refused', steps, message: 'A rebase is already in progress; finish or abort it first.' }
   }
 
-  let workTreeBackupTag: string | undefined
-  let stashed = false
-  if (facts.dirty || facts.untracked.length > 0) {
-    workTreeBackupTag = 'backup/dsh-update-wip-' + tagSuffix
-    await backupWorkTree(git, facts.repository, facts.head, workTreeBackupTag, signal)
-    steps.push({ name: 'working-tree-backup', status: 'ok', detail: workTreeBackupTag })
-    const stash = await git.run(['stash', 'push', '--include-untracked', '--message', 'dsh-git-update ' + tagSuffix], { cwd: facts.repository, signal })
-    if (stash.exitCode !== 0) {
-      steps.push({ name: 'stash', status: 'failed', detail: diagnostic(stash) })
-      return {
-        outcome: 'failed',
-        steps,
-        ...workTreeBackupTag === undefined ? {} : { workTreeBackupTag },
-        message: 'Could not stash uncommitted work; nothing was changed.',
-      }
-    }
-    stashed = true
-    steps.push({ name: 'stash', status: 'ok', detail: 'uncommitted work stashed' })
-  } else {
-    steps.push({ name: 'working-tree-backup', status: 'skipped', detail: 'working tree clean' })
+  const fetched = await git.run(['fetch', request.remote, '--prune'], { cwd: facts.repository, signal, allowPrompt: true })
+  if (fetched.exitCode !== 0) {
+    steps.push({ name: 'fetch', status: 'failed', detail: diagnostic(fetched) })
+    return { outcome: 'failed', steps, message: 'Fetch failed: ' + diagnostic(fetched) }
   }
+  steps.push({ name: 'fetch', status: 'ok', detail: request.remote })
 
+  const upstreamBranch = request.options.upstreamBranch ?? await defaultBranch(git, facts.repository, request.remote, signal)
+  const upstream = request.remote + '/' + upstreamBranch
+  const verified = await git.run(['rev-parse', '--verify', '--quiet', upstream], { cwd: facts.repository, signal })
+  if (verified.exitCode !== 0) {
+    steps.push({ name: 'fetch', status: 'failed', detail: 'upstream ref ' + upstream + ' does not exist' })
+    return { outcome: 'failed', steps, message: 'Upstream ref ' + upstream + ' does not exist.' }
+  }
+  const counts = await readCounts(git, facts.repository, upstream, signal)
+  const before = statusOf(facts, upstream, counts, facts.dirty, facts.untracked)
+
+  let workTreeBackupTag: string | undefined
+  let headBackupTag: string | undefined
+  let stashed = false
   const restore = async (): Promise<void> => {
     if (!stashed) return
     const pop = await git.run(['stash', 'pop'], { cwd: facts.repository, signal })
@@ -234,58 +310,71 @@ export async function runUpdate(git: GitRunner, request: UpdateRequest, signal: 
       : { name: 'stash-restore', status: 'failed', detail: 'stash kept: ' + diagnostic(pop) })
   }
 
-  const fetched = await git.run(['fetch', request.remote, '--prune'], { cwd: facts.repository, signal, allowPrompt: true })
-  if (fetched.exitCode !== 0) {
-    await restore()
-    steps.push({ name: 'fetch', status: 'failed', detail: diagnostic(fetched) })
-    return {
-      outcome: 'failed',
-      steps,
-      ...workTreeBackupTag === undefined ? {} : { workTreeBackupTag },
-      message: 'Fetch failed: ' + diagnostic(fetched),
-    }
-  }
-  steps.push({ name: 'fetch', status: 'ok', detail: request.remote })
-
-  const upstreamBranch = request.options.upstreamBranch ?? await defaultBranch(git, facts.repository, request.remote, signal)
-  const upstream = request.remote + '/' + upstreamBranch
-  const verified = await git.run(['rev-parse', '--verify', '--quiet', upstream], { cwd: facts.repository, signal })
-  if (verified.exitCode !== 0) {
-    await restore()
-    steps.push({ name: 'fetch', status: 'failed', detail: 'upstream ref ' + upstream + ' does not exist' })
-    return {
-      outcome: 'failed',
-      steps,
-      ...workTreeBackupTag === undefined ? {} : { workTreeBackupTag },
-      message: 'Upstream ref ' + upstream + ' does not exist.',
-    }
-  }
-  const counts = await readCounts(git, facts.repository, upstream, signal)
-  const before = statusOf(facts, upstream, counts, facts.dirty, facts.untracked)
-
-  let headBackupTag: string | undefined
+  // The work tree is only touched once there is something to rebase onto.
   if (counts.behind === 0) {
     steps.push({ name: 'rebase', status: 'skipped', detail: 'already up to date with ' + upstream })
   } else {
+    let pending = facts.dirty || facts.untracked.length > 0
+    if (pending) {
+      workTreeBackupTag = 'backup/dsh-update-wip-' + tagSuffix
+      await backupWorkTree(git, facts.repository, facts.head, workTreeBackupTag, signal)
+      steps.push({ name: 'working-tree-backup', status: 'ok', detail: workTreeBackupTag })
+    } else {
+      steps.push({ name: 'working-tree-backup', status: 'skipped', detail: 'working tree clean' })
+    }
+
+    // The previous update's `pnpm install` leaves the lockfile edited. Stashing
+    // it would collide with upstream's lockfile on restore, and the next install
+    // rewrites it anyway, so it is dropped here (the backup tag above keeps it).
+    if (facts.dirty && (await git.run(['diff', '--quiet', 'HEAD', '--', LOCKFILE], { cwd: facts.repository, signal })).exitCode === 1) {
+      ok(await git.run(['checkout', 'HEAD', '--', LOCKFILE], { cwd: facts.repository, signal }), 'git checkout ' + LOCKFILE)
+      steps.push({ name: 'lockfile', status: 'ok', detail: LOCKFILE + ' edits dropped; the reinstall regenerates it' })
+      pending = lines(ok(await git.run(['status', '--porcelain=v1', '--untracked-files=normal'], { cwd: facts.repository, signal }), 'git status').stdout).length > 0
+    }
+
+    if (pending) {
+      const stash = await git.run(['stash', 'push', '--include-untracked', '--message', 'dsh-git-update ' + tagSuffix], { cwd: facts.repository, signal })
+      if (stash.exitCode !== 0) {
+        steps.push({ name: 'stash', status: 'failed', detail: diagnostic(stash) })
+        return {
+          outcome: 'failed',
+          before,
+          steps,
+          ...workTreeBackupTag === undefined ? {} : { workTreeBackupTag },
+          message: 'Could not stash uncommitted work; the branch was not rebased.',
+        }
+      }
+      stashed = true
+      steps.push({ name: 'stash', status: 'ok', detail: 'uncommitted work stashed' })
+    }
+
     headBackupTag = 'backup/dsh-update-' + tagSuffix
     ok(await git.run(['tag', '-f', headBackupTag, 'HEAD'], { cwd: facts.repository, signal }), 'git tag')
     steps.push({ name: 'head-backup', status: 'ok', detail: headBackupTag })
-    const rebase = await git.run(['rebase', upstream], { cwd: facts.repository, signal })
-    if (rebase.exitCode !== 0) {
-      const conflicts = await git.run(['diff', '--name-only', '--diff-filter=U'], { cwd: facts.repository, signal })
+    const rebase = await rebaseResolving(git, facts.repository, facts.gitDir, upstream, counts.ahead + 1, signal)
+    if (!rebase.ok) {
       await git.run(['rebase', '--abort'], { cwd: facts.repository, signal })
       await restore()
-      steps.push({ name: 'rebase', status: 'failed', detail: diagnostic(rebase) })
+      steps.push({ name: 'rebase', status: 'failed', detail: rebase.detail })
       return {
         outcome: 'conflict',
         before,
         steps,
-        ...headBackupTag === undefined ? {} : { headBackupTag },
+        headBackupTag,
         ...workTreeBackupTag === undefined ? {} : { workTreeBackupTag },
-        message: 'Rebase onto ' + upstream + ' conflicted; the branch was restored. Conflicting paths: ' + (lines(conflicts.stdout).join(', ') || 'none reported'),
+        message: 'Rebase onto ' + upstream + ' conflicted; the branch was restored. Conflicting paths: '
+          + (rebase.conflicts.join(', ') || 'none reported'),
       }
     }
-    steps.push({ name: 'rebase', status: 'ok', detail: 'rebased ' + String(counts.ahead) + ' commits onto ' + upstream })
+    const settled = [
+      ...rebase.replayed.length === 0 ? [] : ['replayed recorded resolutions: ' + rebase.replayed.join(', ')],
+      ...rebase.regenerated.length === 0 ? [] : ['took upstream for regenerated files: ' + rebase.regenerated.join(', ')],
+    ]
+    steps.push({
+      name: 'rebase',
+      status: 'ok',
+      detail: ['rebased ' + String(counts.ahead) + ' commits onto ' + upstream, ...settled].join('; '),
+    })
   }
 
   await restore()

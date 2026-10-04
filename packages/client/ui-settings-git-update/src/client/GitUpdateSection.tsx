@@ -43,12 +43,14 @@ const OUTCOME_KEYS = {
 
 const STEP_KEYS = {
   'working-tree-backup': 'stepWorkingTreeBackup',
+  lockfile: 'stepLockfile',
   stash: 'stepStash',
   fetch: 'stepFetch',
   'head-backup': 'stepHeadBackup',
   rebase: 'stepRebase',
   'stash-restore': 'stepStashRestore',
   push: 'stepPush',
+  restart: 'stepRestart',
 } satisfies Record<GitUpdateStep['name'], GitUpdateLocaleKey>
 
 const STEP_STATUS_KEYS = {

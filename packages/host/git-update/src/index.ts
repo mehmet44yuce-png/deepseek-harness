@@ -2,8 +2,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-// Type-only: pulls the ctx.subprocess Context merge.
+// Type-only: pulls the ctx.subprocess and ctx.appExit Context merges.
 import type {} from '@deepseek-ai/dsh-subprocess'
+import type {} from '@deepseek-ai/dsh-cmdline'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
@@ -13,6 +14,17 @@ import type { RepositoryFacts } from './sync.ts'
 import type { GitUpdateOptions, GitUpdateResult, GitUpdateStatus } from './types.ts'
 
 export type * from './types.ts'
+
+/**
+ * Exit code the supervising launcher (scripts/start-web.bat, which sets
+ * DSH_SUPERVISED=1) reads as "reinstall, rebuild, and start again". The
+ * reinstall runs there, after this process is gone, because a live Host keeps
+ * native modules open and Windows refuses to replace them.
+ */
+const RESTART_EXIT_CODE = 75
+
+/** Lets the update reply reach the Client before the process starts to exit. */
+const RESTART_DELAY_MS = 1_500
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
@@ -125,13 +137,43 @@ export class GitUpdateService extends TypertRemoteService {
     // Classify a non-repository directory before the engine reads anything.
     await this.facts(runner, cwd, signal)
     const resolved = this.options(options)
-    return await runUpdate(runner, {
+    const result = await runUpdate(runner, {
       cwd,
       options: resolved,
       remote: options.remote ?? this.configuration.remote ?? 'origin',
       skipPushHooks: this.configuration.skipPushHooks ?? false,
       now: new Date(),
     }, signal)
+    return result.outcome === 'updated' ? this.restartAfter(result) : result
+  }
+
+  /**
+   * Hand a finished update to the launcher: the rebased sources only take
+   * effect after dependencies are reinstalled, the workspace rebuilt, and the
+   * Host restarted, which only a supervising launcher can do.
+   */
+  private restartAfter(result: GitUpdateResult): GitUpdateResult {
+    const exit = this.ctx.get('appExit')
+    if (process.env.DSH_SUPERVISED !== '1' || exit === undefined) {
+      return {
+        ...result,
+        steps: [...result.steps, {
+          name: 'restart',
+          status: 'skipped',
+          detail: 'no supervising launcher: run pnpm install && pnpm run build, then restart the harness',
+        }],
+      }
+    }
+    setTimeout(() => { if (!this.lifetime.signal.aborted) exit(RESTART_EXIT_CODE) }, RESTART_DELAY_MS)
+    return {
+      ...result,
+      steps: [...result.steps, {
+        name: 'restart',
+        status: 'ok',
+        detail: 'the harness restarts, reinstalls, rebuilds, and opens a new tab when ready',
+      }],
+      message: result.message + ' Restarting to reinstall and rebuild.',
+    }
   }
 
   /** The directory the repository is discovered from. */
