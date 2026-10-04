@@ -8,9 +8,9 @@
 
 *.pdf binary
 
-# Pairing records are generated from the three confirmed owner-blob pairs.
-# The worktree-local installer registers the fail-closed driver command.
-*.i18n.yaml merge=dsh-translation-pairing
+# Alias entries accumulate on both update sides; merge=union keeps each addition,
+# and `pnpm run gen-tsconfig-paths` rewrites the generated region afterwards.
+tsconfig.base.json merge=union
 
 # The persistence catalog is the readable projection of these generated schemas.
 docs/persistence-schema.json linguist-generated=true

@@ -19,12 +19,15 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, isDarwinDesktop, Tooltip,
+  FishLogo, IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular, isDarwinDesktop, ShortcutKeys,
+  StateDot, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SidebarPanelMetadata, SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps,
 } from './contract/slots.ts'
+import { deepseekPricingTier } from './deepseek-pricing.ts'
+import type { DeepseekPricingTier } from './deepseek-pricing.ts'
 import css from './SidebarRoot.module.css'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
@@ -37,6 +40,9 @@ const COLLAPSE_SETTLE_MS = 150
  * edge — on the way to the conversation, or around a portalled menu.
  */
 const SCROLLBAR_LINGER_MS = 2000
+
+/** Re-evaluate DeepSeek pricing at most once a minute (peak windows start on whole hours). */
+const PRICING_TICK_MS = 60_000
 
 /** Format complete-build metadata for the local brand badge. */
 function localBuildVersion(): string | undefined {
@@ -92,11 +98,15 @@ export function SidebarRoot({
   toggleSidebar,
   selectPanel,
   usePanels,
+  useShortcuts,
   usePanelInfo,
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
   const panels = usePanels(snapshot => snapshot)
+  const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
+  const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
+  const toggleLabel = collapsed ? t('toggle.open') : t('toggle.collapse')
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
@@ -107,7 +117,10 @@ export function SidebarRoot({
   }, [collapsed])
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   const wide = windowsTitlebar ? !collapsed : !collapsed || !settled
-
+  // The Windows caption menus occupy the strip to the right of these controls
+  // (that is what --dsh-windows-menu-start reserves), so a right-side bubble
+  // lands under their text. Below the caption is the only clear side.
+  const captionTooltipSide = windowsTitlebar ? 'bottom' : 'right'
   // Freeze the content at its expanded width while it fades out (collapsed
   // && wide): the sliding column then clips it instead of reflowing it. The
   // rail layout (.collapsed styles) only applies once the fade settles.
@@ -169,11 +182,12 @@ export function SidebarRoot({
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
   const toggle = (
-    <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+    <Tooltip label={toggleLabel} shortcutKeys={shortcut?.keys} delayMs={500} side={captionTooltipSide}>
       <button
         type="button"
         className={clsx(css.iconButton, css.toggle)}
-        aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
+        aria-label={toggleLabel}
+        aria-keyshortcuts={shortcut?.aria}
         onClick={() => { toggleSidebar() }}
       >
         {!wide && !windowsTitlebar && (
@@ -182,10 +196,32 @@ export function SidebarRoot({
           </span>
         )}
         {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-        <IconPanelLeftOutline16 className={css.panelIcon} size={wide || windowsTitlebar ? 16 : 18} />
+        <IconPanelLeftOutlineRegular className={css.panelIcon} size={wide || windowsTitlebar ? 16 : 18} />
         {!wide && renderSlot('sidebar.toggle.badge', {})}
       </button>
     </Tooltip>
+  )
+
+  // DeepSeek peak/off-peak billing flips only on whole-hour UTC boundaries, so a
+  // 60s re-evaluation keeps the indicator current; the same-value bail-out means a
+  // tick that does not change the tier renders nothing.
+  const [pricingTier, setPricingTier] = useState<DeepseekPricingTier>(
+    () => deepseekPricingTier(new Date()),
+  )
+  useEffect(() => {
+    const evaluate = (): void => {
+      const next = deepseekPricingTier(new Date())
+      setPricingTier(previous => previous === next ? previous : next)
+    }
+    const timer = window.setInterval(evaluate, PRICING_TICK_MS)
+    return () => { window.clearInterval(timer) }
+  }, [])
+  const pricingLabel = pricingTier === 'peak' ? t('brand.peakPricing') : t('brand.offpeakPricing')
+  const pricing = (
+    <span className={css.brandPricing} role="status" title={pricingLabel}>
+      <StateDot state={pricingTier === 'peak' ? 'error' : 'done'} />
+      <span className={css.visuallyHidden}>{pricingLabel}</span>
+    </span>
   )
 
   return (
@@ -204,17 +240,14 @@ export function SidebarRoot({
     >
       {/* macOS hiddenInset titlebar: the strip shares the row with the
           traffic lights and keeps the toggle at the sidebar's top-right. */}
-      {darwinDesktop && <div className={css.topStrip}>{toggle}</div>}
-      <div className={css.logoRow}>
-        {/* Expanded, the brand doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (
-          <button
-            type="button"
-            className={clsx(css.brand, css.wide)}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
-          >
+      {darwinDesktop && <div className={css.topStrip} data-window-drag>{toggle}</div>}
+      <div className={css.logoRow} data-window-drag>
+        {/* Expanded, the brand doubles as a New Session shortcut — except on
+            macOS, where it stays part of the logo row's window-drag surface
+            (a button would subtract itself through the global no-drag rule);
+            the collapsed rail's logo is the expand toggle below instead. */}
+        {wide && (() => {
+          const identity = (
             <span className={css.brandIdentity} aria-hidden="true">
               <span className={css.brandMark}>
                 {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
@@ -232,21 +265,43 @@ export function SidebarRoot({
                 })}
               </span>
             </span>
-          </button>
-        )}
+          )
+          return darwinDesktop
+            ? <span className={clsx(css.brand, css.wide)}>{identity}{pricing}</span>
+            : (
+              <button
+                type="button"
+                className={clsx(css.brand, css.wide)}
+                aria-label={t('session.new.label')}
+                aria-keyshortcuts={newShortcut?.aria}
+                onClick={() => { startSession() }}
+              >
+                {identity}
+                {pricing}
+              </button>
+            )
+        })()}
         {!darwinDesktop && toggle}
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+      {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
+      <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
         <button
           type="button"
           className={css.newSession}
           aria-label={t('session.new.label')}
+          aria-keyshortcuts={newShortcut?.aria}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : windowsTitlebar ? 16 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
+            {wide
+              ? <IconNewChatOutlineMedium size={14} />
+              : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
+            {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          </span></span>
+          {wide && newShortcut !== undefined && newShortcut.keys.length > 0 && <span className={css.newSessionShortcut} aria-hidden="true">
+            <ShortcutKeys keys={newShortcut.keys} />
+          </span>}
         </button>
       </Tooltip>
 

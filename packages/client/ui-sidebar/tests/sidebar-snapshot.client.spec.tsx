@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /**
  * Local DOM snapshots of the sidebar shell through the real assembly path:
  * SlotTestRuntime mounts the package apply on its own fiber, the auto frame
@@ -24,10 +25,16 @@ beforeEach(() => {
   vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abc1234')
   vi.stubEnv('DSH_CLIENT_GIT_DIRTY', 'true')
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
+  // Pin the pricing indicator to a deterministic instant: Monday 02:00 UTC is
+  // inside the 01:00–04:00 peak window. Only Date is faked so the collapse
+  // settle (real setTimeout) and waitFor still advance normally.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(Date.UTC(2026, 0, 5, 2)))
 })
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.unstubAllEnvs()
 })
 
@@ -39,6 +46,7 @@ afterEach(() => {
  */
 async function bench(options: { locale?: 'en' } = {}) {
   const runtime = await SlotTestRuntime.create()
+  runtime.ctx.provide('shortcuts', { catalog: createSnapshotStore([]) } as never)
   runtime.ctx.provide('layout', { toggleSidebar: vi.fn() })
   runtime.ctx.provide('uiWorkspace', { startSession: vi.fn() } as never)
   const locale = new LocaleRuntime(runtime.ctx)
