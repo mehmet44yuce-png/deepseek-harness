@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { GitRunOptions, GitRunResult, GitRunnerLike } from '../src/runner.ts'
 import { runUpdate } from '../src/sync.ts'
@@ -80,7 +80,10 @@ function fixture(files: Readonly<Record<string, string>>): Fixture {
   const upstream = join(root, 'upstream')
   mkdirSync(upstream)
   git(upstream, 'init', '--quiet', '--initial-branch=main')
-  for (const [path, content] of Object.entries(files)) writeFileSync(join(upstream, path), content)
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(upstream, path)), { recursive: true })
+    writeFileSync(join(upstream, path), content)
+  }
   git(upstream, 'add', '-A')
   git(upstream, 'commit', '--quiet', '-m', 'root')
   const local = join(root, 'local')
