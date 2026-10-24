@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as plugin from '../src/index.ts'
 import {
@@ -108,6 +110,7 @@ async function setup(
   context = ctx
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   if (options.withCredentials === true) await ctx.plugin(FakeCredentials)
   await ctx.plugin(plugin, options.withApiKey === false ? config : { apiKey: 'ts-unit-key', ...config })
   return ctx
@@ -148,7 +151,7 @@ function requestOf(mock: ReturnType<typeof stubFetch>): { url: string; init: Req
  * @returns the tool result.
  */
 function callTool(ctx: Context, args: unknown, signal?: AbortSignal) {
-  return ctx.tools.execute({
+  return executeModelToolFixture(ctx, {
     signal: signal ?? new AbortController().signal,
     callId: ToolCallId(`call-${++callCounter}`),
     name: 'typesafe_decide',

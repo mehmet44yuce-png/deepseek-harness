@@ -36,6 +36,8 @@ export const fr = {
   'back': 'Retour',
   'brand.localBuild': 'Version locale de DSH',
   'workspace.defaultName': 'Espace de travail par défaut',
+  'brand.peakPricing': 'Tarif heures pleines',
+  'brand.offpeakPricing': 'Tarif heures creuses',
   'unknown': 'Inconnu',
   'none': 'Aucun',
   'truncated': 'Tronqué',

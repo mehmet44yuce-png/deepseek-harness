@@ -24,8 +24,8 @@ const PRICING_TICK_MS = 60_000
 
 function mount(now: Date) {
   vi.useFakeTimers({ now })
-  // Upstream shells also read a keyboard-shortcut catalog. The fixture supplies
-  // that hook outside the typed props so it stays valid on both sides of the
+  // Upstream shells also read a keyboard-shortcut catalog, entry pins and actions,
+  // and remote access. The fixture supplies those hooks outside the typed props so it stays valid on both sides of the
   // change, which keeps this local spec compiling across upstream updates.
   const props = {
     collapsed: false,
@@ -37,6 +37,11 @@ function mount(now: Date) {
     selectPanel: () => {},
     usePanels: (selector: (panels: readonly never[]) => unknown) => selector([]),
     useShortcuts: (selector: (rows: readonly never[]) => unknown) => selector([]),
+    useEntryPins: (selector: (ids: readonly never[]) => unknown) => selector([]),
+    useEntryActions: (selector: (registered: boolean) => unknown) => selector(false),
+    useRemoteAccess: () => true,
+    setPinned: vi.fn(),
+    trackEntryClick: vi.fn(),
     useResource,
     useWorkspaces: neverHook,
     startSession: vi.fn(),

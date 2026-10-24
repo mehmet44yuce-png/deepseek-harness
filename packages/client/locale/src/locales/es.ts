@@ -36,6 +36,8 @@ export const es = {
   'back': 'Atrás',
   'brand.localBuild': 'Compilación local de DSH',
   'workspace.defaultName': 'Espacio de trabajo predeterminado',
+  'brand.peakPricing': 'Tarifa punta',
+  'brand.offpeakPricing': 'Tarifa valle',
   'unknown': 'Desconocido',
   'none': 'Ninguno',
   'truncated': 'Truncado',

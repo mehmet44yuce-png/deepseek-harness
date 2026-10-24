@@ -36,6 +36,8 @@ export const ja = {
   'back': '戻る',
   'brand.localBuild': 'DSHローカルビルド',
   'workspace.defaultName': 'デフォルトワークスペース',
+  'brand.peakPricing': 'ピーク料金',
+  'brand.offpeakPricing': 'オフピーク料金',
   'unknown': '不明',
   'none': 'なし',
   'truncated': '切り詰め済み',

@@ -36,6 +36,8 @@ export const ru = {
   'back': 'Назад',
   'brand.localBuild': 'Локальная сборка DSH',
   'workspace.defaultName': 'Рабочая область по умолчанию',
+  'brand.peakPricing': 'Пиковый тариф',
+  'brand.offpeakPricing': 'Внепиковый тариф',
   'unknown': 'Неизвестно',
   'none': 'Нет',
   'truncated': 'Усечено',

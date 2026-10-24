@@ -36,6 +36,8 @@ export const pt = {
   'back': 'Voltar',
   'brand.localBuild': 'Versão local do DSH',
   'workspace.defaultName': 'Espaço de trabalho padrão',
+  'brand.peakPricing': 'Tarifa de pico',
+  'brand.offpeakPricing': 'Tarifa fora de pico',
   'unknown': 'Desconhecido',
   'none': 'Nenhum',
   'truncated': 'Truncado',
