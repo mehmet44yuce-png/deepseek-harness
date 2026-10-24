@@ -434,6 +434,11 @@ export const ja = {
   'onboardingSave': '保存して続ける',
   'onboardingSaving': '保存中…',
   'keyRequired': '続けるにはAPIキーを入力してください。',
+  'autoSync': 'モデルを自動で最新に保つ',
+  'syncRunning': '新しいモデルを確認しています…',
+  'syncNoNew': '新しいモデルは見つかりませんでした。',
+  'syncAdded': '{count} 件の新しいモデルを追加しました。',
+  'syncFailed': 'モデルの同期に失敗しました: {message}',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -575,6 +580,11 @@ export const es = {
   onboardingSave: 'Guardar y continuar',
   onboardingSaving: 'Guardando…',
   keyRequired: 'Ingrese una clave API para continuar.',
+  autoSync: 'Mantener los modelos actualizados automáticamente',
+  syncRunning: 'Buscando modelos nuevos…',
+  syncNoNew: 'No se encontraron modelos nuevos.',
+  syncAdded: '{count} modelo(s) nuevo(s) añadido(s).',
+  syncFailed: 'La sincronización de modelos falló: {message}',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -716,6 +726,11 @@ export const fr = {
   onboardingSave: 'Enregistrer et continuer',
   onboardingSaving: 'Sauvegarde…',
   keyRequired: 'Entrez une clé API pour continuer.',
+  autoSync: 'Maintenir les modèles à jour automatiquement',
+  syncRunning: 'Recherche de nouveaux modèles…',
+  syncNoNew: 'Aucun nouveau modèle trouvé.',
+  syncAdded: '{count} nouveau(x) modèle(s) ajouté(s).',
+  syncFailed: 'La synchronisation des modèles a échoué : {message}',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -857,6 +872,11 @@ export const de = {
   onboardingSave: 'Speichern und fortfahren',
   onboardingSaving: 'Speichern…',
   keyRequired: 'Geben Sie einen API-Schlüssel ein, um fortzufahren.',
+  autoSync: 'Modelle automatisch aktuell halten',
+  syncRunning: 'Suche nach neuen Modellen…',
+  syncNoNew: 'Keine neuen Modelle gefunden.',
+  syncAdded: '{count} neue(s) Modell(e) hinzugefügt.',
+  syncFailed: 'Modellsynchronisierung fehlgeschlagen: {message}',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -998,6 +1018,11 @@ export const ru = {
   onboardingSave: 'Сохранить и продолжить',
   onboardingSaving: 'Сохранение…',
   keyRequired: 'Введите ключ API, чтобы продолжить.',
+  autoSync: 'Автоматически поддерживать список моделей актуальным',
+  syncRunning: 'Поиск новых моделей…',
+  syncNoNew: 'Новые модели не найдены.',
+  syncAdded: 'Добавлено новых моделей: {count}.',
+  syncFailed: 'Не удалось синхронизировать модели: {message}',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -1139,4 +1164,9 @@ export const pt = {
   onboardingSave: 'Salvar e continuar',
   onboardingSaving: 'Salvando…',
   keyRequired: 'Insira uma chave de API para continuar.',
+  autoSync: 'Manter os modelos atualizados automaticamente',
+  syncRunning: 'Procurando novos modelos…',
+  syncNoNew: 'Nenhum modelo novo encontrado.',
+  syncAdded: '{count} modelo(s) novo(s) adicionado(s).',
+  syncFailed: 'Falha na sincronização de modelos: {message}',
 } satisfies Record<keyof typeof en, string>

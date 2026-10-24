@@ -11,6 +11,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolTypesafe from '@deepseek-ai/dsh-tool-typesafe'
 import { TYPESAFE_DEFAULT_BASE_URL, TYPESAFE_DEFAULT_MODEL } from '@deepseek-ai/dsh-tool-typesafe'
@@ -56,6 +58,7 @@ async function boot(configLines: readonly string[]): Promise<Context> {
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@deepseek-ai/dsh-tool-executor-native'",
     "- name: '@deepseek-ai/dsh-tool-typesafe'",
     ...configLines.length > 0 ? ['  config:', ...configLines] : [],
     '',
@@ -69,6 +72,7 @@ async function boot(configLines: readonly string[]): Promise<Context> {
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-tool-executor-native', NativeToolExecutor],
     ['@deepseek-ai/dsh-tool-typesafe', ToolTypesafe],
   ])
   ctx.loader.internal = {
@@ -91,7 +95,7 @@ async function boot(configLines: readonly string[]): Promise<Context> {
  * @returns the tool result.
  */
 function callTool(ctx: Context, args: unknown) {
-  return ctx.tools.execute({
+  return executeModelToolFixture(ctx, {
     signal: new AbortController().signal,
     callId: ToolCallId(`loader-call-${++callCounter}`),
     name: 'typesafe_decide',

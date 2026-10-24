@@ -695,7 +695,7 @@ describe('endpoint interrogation', () => {
     fireEvent.click(screen.getByRole('button', { name: en.addModel }))
     fireEvent.change(screen.getByLabelText(`${en.modelId} 2`), { target: { value: 'b' } })
     await act(async () => { reply.resolve(ok([{ id: 'a' }, { id: 'b' }, { id: 'c' }])) })
-    const boxes = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    const boxes = [...screen.getByRole('dialog').querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
     expect(boxes.map(box => box.checked)).toEqual([true, true, false])
     fireEvent.click(screen.getByText(en.fetchAdopt))
     fireEvent.click(screen.getByText(en.apply))
