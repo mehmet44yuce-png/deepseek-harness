@@ -209,6 +209,8 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'mcpManager/probe': 'owner-only', // owner MCP server management
   'mcpManager/restart': 'owner-only', // owner MCP server management
   'mcpManager/watch': 'owner-only', // owner MCP server management
+  'gitUpdate/status': 'owner-only', // owner's checkout and upstream relation; the served page never reads it
+  'gitUpdate/update': 'owner-only', // rebases and restarts the owner's Host; never on a viewer's behalf
   'commands/execute': 'owner-only', // owner executes a slash command
   'permissionPresets/catalog': 'owner-only', // owner permission presets
   'userQuestions/answer': 'owner-only', // owner answers a pending question
