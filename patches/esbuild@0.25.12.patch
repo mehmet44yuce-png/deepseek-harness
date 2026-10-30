@@ -1,0 +1,13 @@
+diff --git a/lib/main.js b/lib/main.js
+index 87aa87b00cf9eb27dcad88b11b2570298cc8c422..75fb29523783a3235dcf275cfab570417f6f0b1d 100644
+--- a/lib/main.js
++++ b/lib/main.js
+@@ -771,7 +771,7 @@ function createChannel(streamIn) {
+         });
+       }
+     };
+-    if ((typeof input === "string" || input instanceof Uint8Array) && input.length > 1024 * 1024) {
++    if (false && (typeof input === "string" || input instanceof Uint8Array) && input.length > 1024 * 1024) {
+       let next = start;
+       start = () => fs3.writeFile(input, next);
+     }

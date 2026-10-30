@@ -9,7 +9,8 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, LlmNativeAuth, LlmProviderInfo, SettingsNamespaceView,
+  SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -30,6 +31,9 @@ export interface ProviderDirectoryEntry {
   readonly settingsPath: readonly string[]
   readonly active: boolean
   readonly declared?: boolean
+  readonly defaultBaseURL?: string
+  readonly baseURLEnv?: readonly string[]
+  readonly nativeAuth?: LlmNativeAuth
   readonly error?: string
 }
 
@@ -37,7 +41,7 @@ export interface ProviderDirectoryEntry {
  * Join declared configurable providers with the currently registered routes.
  * @param registered - live provider routes in registration order.
  * @param directory - declared configurable providers in declaration order.
- * @returns declared rows followed by live routes with no declaration.
+ * @returns account and official routes first, then other routes in their original order.
  */
 export function joinProviderDirectory(
   registered: readonly LlmProviderInfo[],
@@ -52,6 +56,9 @@ export function joinProviderDirectory(
     settingsPath: [...entry.settingsPath],
     active: active.has(entry.provider),
     ...entry.declared === undefined ? {} : { declared: entry.declared },
+    ...entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: entry.defaultBaseURL },
+    ...entry.baseURLEnv === undefined ? {} : { baseURLEnv: entry.baseURLEnv },
+    ...entry.nativeAuth === undefined ? {} : { nativeAuth: entry.nativeAuth },
     ...entry.error === undefined ? {} : { error: entry.error },
   }))
   for (const provider of registered) {
@@ -64,11 +71,15 @@ export function joinProviderDirectory(
       active: true,
     })
   }
-  return rows
+  return rows.toSorted((left, right) =>
+    (left.provider === 'deepseek-account' ? 0 : left.provider === 'deepseek-official' ? 1 : 2)
+      - (right.provider === 'deepseek-account' ? 0 : right.provider === 'deepseek-official' ? 1 : 2))
 }
 
 /** One provider row the page renders. */
 export interface ProviderRow {
+  /** Account route has usable credentials for the configured inference origin. */
+  accountAvailable?: boolean
   /** The directory entry (route id, display name, settings address, live state). */
   entry: ProviderDirectoryEntry
   /** Whether any layer configures this provider (its profile resolves). */
@@ -86,6 +97,8 @@ export interface ProviderRow {
    * own derivation rule.
    */
   derivedCredential?: CredentialInfo
+  /** Redacted checks for named or native references; absent when their read failed. */
+  credentialChecks?: Readonly<Record<string, CredentialInfo>>
 }
 
 /** Page snapshot. */
@@ -101,7 +114,18 @@ export interface ModelsSettingsState {
   rows: readonly ProviderRow[]
   /** Namespace views by ns, for the editor's schema/layers/secrets. */
   namespaces: ReadonlyMap<string, SettingsNamespaceView>
+  /** Whether new models are written straight into settings on load. */
+  autoSyncEnabled: boolean
+  /** Progress of the auto/manual "sync models" action. */
+  sync: ModelsSyncState
 }
+
+/** Progress of the bulk "sync models" action (an add-only catalog refresh). */
+export type ModelsSyncState =
+  | { status: 'idle'; message: string | null; added: number }
+  | { status: 'running' }
+  | { status: 'done'; message: string | null; added: number }
+  | { status: 'error'; message: string }
 
 /**
  * Derive the conventional credential reference for a provider route: the v1
@@ -134,6 +158,28 @@ export function protocolChoices(
   return list.list.map(entry => entry.value).filter((value): value is string => typeof value === 'string')
 }
 
+/**
+ * The reasoning levels a hand-declared route's models may declare, read out of
+ * the owning namespace's own schema for the same reason as
+ * {@link protocolChoices}: the levels the page offers and the keys the
+ * adapter accepts in `reasoningEfforts` come from the same `Config`.
+ * @param namespace - the namespace view whose schema declares the profile shape.
+ * @param schema - settings schema operations.
+ * @returns the levels in the schema's escalation order, or an empty list when the schema has none.
+ */
+export function reasoningLevelChoices(
+  namespace: SettingsNamespaceView | undefined,
+  schema: SettingsSchemaOperations,
+): string[] {
+  if (namespace === undefined) return []
+  const path = ['providers', PROBE_ROUTE, 'models', '0', 'reasoningEfforts']
+  const node = schema.nodeAtPath(schema.rehydrate(namespace.schema), path)
+  // `false | { [level]: value }`: the dict branch's key schema lists the levels.
+  const branches = (node as { list?: readonly { type?: string; sKey?: unknown }[] } | undefined)?.list ?? []
+  const keys = branches.find(branch => branch.type === 'dict')?.sKey as { list?: readonly { value?: unknown }[] } | undefined
+  return (keys?.list ?? []).map(entry => entry.value).filter((value): value is string => typeof value === 'string')
+}
+
 /** The credential reference a resolved profile names (its `apiKeyEnv` field). */
 function apiKeyEnvOf(
   namespace: SettingsNamespaceView | undefined,
@@ -147,15 +193,58 @@ function apiKeyEnvOf(
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
+/** LocalStorage key holding the value of the auto-sync toggle. */
+const AUTO_SYNC_KEY = 'dsh.modelsSettings.autoSync'
+
+/**
+ * Read the persisted auto-sync toggle. Unset defaults to **off**: the page is
+ * meant to keep a route's models current only when the user opts in, since the
+ * action interrogates every configured pi-ai endpoint over the wire. Storage is
+ * unavailable in a fresh test env, so an unreadable flag falls back to off.
+ */
+function readAutoSyncFlag(): boolean {
+  try {
+    return localStorage.getItem(AUTO_SYNC_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** The existing model entries a profile already serves, as an array. */
+function modelsEntriesOf(
+  path: readonly string[],
+  namespace: SettingsNamespaceView | undefined,
+  schema: SettingsSchemaOperations,
+): readonly { id: string }[] {
+  /* v8 ignore next -- syncModelsNow only calls this with a resolved namespace */
+  if (namespace === undefined) return []
+  const found = schema.getPath(namespace.value, path)
+  return Array.isArray(found)
+    ? found.filter((value): value is { id: string } =>
+      typeof value === 'object' && value !== null && typeof (value as { id?: unknown }).id === 'string')
+    : []
+}
+
+/** Read a rejection's message, stringifying anything else a catch may carry. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
     status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
+    autoSyncEnabled: readAutoSyncFlag(), sync: { status: 'idle', message: null, added: 0 },
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
   private generation = 0
+  /** Callers follow the current refresh's outcome, including callers whose read was superseded. */
+  private readonly pendingLoads = new Set<PromiseWithResolvers<void>>()
+
+  /** Routes the auto-sync already wrote this mount, so load() never re-fires it. */
+  private autoSynced = new Set<string>()
 
   /**
    * @param ctx - the page plugin's context, whose `remote.llm` and
@@ -174,22 +263,38 @@ export class ModelsSettingsStore {
    * settings answer in parallel, then one batched credential describe over
    * every referenced ref. Provider failure or absence of an initial settings
    * answer keeps the last good rows and surfaces an error; a failed settings
-   * refresh reuses the mirror's held view.
-   * @returns nothing; the snapshot carries the outcome.
+   * refresh reuses the mirror's held view. Concurrent callers resolve only
+   * after the current refresh publishes its ready or error snapshot.
+   * @returns resolution after the current snapshot is published.
+   * @throws the current read's unexpected rejection; superseded rejections are ignored.
    */
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    const pending = Promise.withResolvers<void>()
+    this.pendingLoads.add(pending)
     const generation = ++this.generation
+    void this.read(generation).then(
+      () => { this.settleLoads(generation, (load) => { load.resolve() }) },
+      (error: unknown) => { this.settleLoads(generation, (load) => { load.reject(error) }) },
+    )
+    return pending.promise
+  }
+
+  /** Publish one joined answer; stale answers leave the current refresh in charge. */
+  private async read(generation: number): Promise<void> {
     this.store.update((s) => { s.status = 'loading'; s.error = null })
     const [registered, declared] = await Promise.all([
       this.ctx.remote.llm.listProviders(),
       this.ctx.remote.llm.listConfigurableProviders(),
       this.describeFace.ensure(),
     ])
-    if (!registered.ok) { this.failLoad(generation, registered.error.message); return }
-    if (!declared.ok) { this.failLoad(generation, declared.error.message); return }
+    if (generation !== this.generation) return
+    if (!registered.ok) { this.failLoad(registered.error.message); return }
+    if (!declared.ok) { this.failLoad(declared.error.message); return }
     const mirrored = this.describeFace.getSnapshot()
     if (mirrored.view === undefined) {
-      this.failLoad(generation, mirrored.error ?? 'settings are unavailable in this browser')
+      /* v8 ignore next -- SettingsDescribeFace.ensure settles with a view or the read's error */
+      if (mirrored.error === null) throw new Error('settings describe settled with neither a view nor an error')
+      this.failLoad(mirrored.error)
       return
     }
     const providers = joinProviderDirectory(registered.value, declared.value)
@@ -208,20 +313,29 @@ export class ModelsSettingsStore {
         entry,
         configured,
         removable,
-        apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
+        apiKeyEnv: entry.provider === 'deepseek-account' ? undefined : apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
         credential: undefined,
       }
     })
-    const refs = [...new Set(rows.map(row => row.apiKeyEnv ?? deriveKeyRef(row.entry.provider)))]
-    let credentials: Record<string, CredentialInfo> = {}
+    if (rows.some(row => row.entry.provider === 'deepseek-account')) {
+      const catalog = await this.ctx.remote.session.modelCatalog()
+      for (const row of rows) {
+        if (row.entry.provider === 'deepseek-account') row.accountAvailable = catalog.ok
+          && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
+      }
+    }
+    const refs = [...new Set(rows.filter(row => row.entry.provider !== 'deepseek-account').flatMap(row =>
+      row.apiKeyEnv === undefined ? [deriveKeyRef(row.entry.provider), ...row.entry.nativeAuth?.env ?? []] : [row.apiKeyEnv]))]
+    const credentials: Record<string, CredentialInfo> = {}
     let credentialError: string | null = null
-    if (refs.length > 0) {
-      const response = await this.ctx.remote.credentials.describe(refs)
+    // credentials.describe accepts at most 64 references per request.
+    for (let index = 0; index < refs.length; index += 64) {
+      const response = await this.ctx.remote.credentials.describe(refs.slice(index, index + 64))
       // Credential state is an enrichment for the Models page: a failure
       // degrades the badge instead of failing the load. The onboarding
       // projection below retains the failure distinction.
-      if (response.ok) credentials = response.value
-      else credentialError = response.error.message
+      if (response.ok) Object.assign(credentials, response.value)
+      else { credentialError = response.error.message; break }
     }
     if (generation !== this.generation) return
     this.store.update((s) => {
@@ -229,26 +343,130 @@ export class ModelsSettingsStore {
       s.error = null
       s.credentialError = credentialError
       s.writable = writable
-      s.rows = rows.map((row) => {
+      s.rows = rows.filter(row => row.entry.provider !== 'deepseek-account' || row.accountAvailable === true).map((row) => {
+        if (row.entry.provider === 'deepseek-account') return row
         const named = row.apiKeyEnv === undefined ? undefined : credentials[row.apiKeyEnv]
         const derived = row.apiKeyEnv !== undefined ? undefined : credentials[deriveKeyRef(row.entry.provider)]
         return {
           ...row,
           ...named === undefined ? {} : { credential: named },
           ...derived === undefined ? {} : { derivedCredential: derived },
+          ...credentialError === null ? { credentialChecks: Object.fromEntries(
+            (row.apiKeyEnv === undefined ? row.entry.nativeAuth?.env ?? [] : [row.apiKeyEnv])
+              .flatMap((ref) => {
+                const info = credentials[ref]
+                return info === undefined ? [] : [[ref, info] as const]
+              }),
+          ) } : {},
         }
       })
       s.namespaces = namespaces
     })
+    // Keep a route's models current without a manual refresh: once per mount,
+    // for each configured pi-ai route not yet written this session.
+    void this.syncNowIfAuto()
   }
 
-  /** Publish one load's failure text, unless a newer load already took over. */
-  private failLoad(generation: number, message: string): void {
+  /** Settle callers only while this read still owns the current refresh. */
+  private settleLoads(generation: number, settle: (load: PromiseWithResolvers<void>) => void): void {
     if (generation !== this.generation) return
+    const pending = [...this.pendingLoads]
+    this.pendingLoads.clear()
+    for (const load of pending) settle(load)
+  }
+
+  /** Publish the current joined read's failure text. */
+  private failLoad(message: string): void {
     this.store.update((s) => {
       s.status = 'error'
       s.error = message
     })
+  }
+
+  /**
+   * Toggle the auto-sync, persisting the choice. A toggle clears the per-mount
+   * "written" set so a re-enabled mount will consider a route again.
+   * @param enabled - whether new models are written straight into settings.
+   */
+  setAutoSync(enabled: boolean): void {
+    try {
+      localStorage.setItem(AUTO_SYNC_KEY, enabled ? '1' : '0')
+    } catch {
+      // Storage unavailable: the in-memory flag still governs this mount.
+    }
+    this.autoSynced.clear()
+    this.store.update((s) => { s.autoSyncEnabled = enabled })
+  }
+
+  /** Run the auto-sync when enabled and a mount has not already done so. */
+  private syncNowIfAuto(): void {
+    if (this.store.getSnapshot().autoSyncEnabled) void this.syncModelsNow()
+  }
+
+  /**
+   * Ask every configured pi-ai route what its endpoint serves right now
+   * (`forceLive`, so even a catalog route is interrogated over the wire), and
+   * write the new models straight into settings — add-only, with the picks the
+   * live list introduced. Nothing is ever removed; a route the user tuned keeps
+   * its entries, and a model already served is never duplicated.
+   * @returns nothing; the snapshot carries the sync outcome.
+   */
+  async syncModelsNow(): Promise<void> {
+    const state = this.store.getSnapshot()
+    if (state.status !== 'ready') return
+    this.store.update((s) => { s.sync = { status: 'running' } })
+    const namespace = state.namespaces.get('llm-pi-ai')
+    if (namespace === undefined) {
+      this.store.update((s) => { s.sync = { status: 'error', message: 'no llm-pi-ai namespace' } })
+      return
+    }
+    const ops: SettingsPathOpView[] = []
+    let addedTotal = 0
+    const failures: string[] = []
+    for (const row of state.rows) {
+      if (!row.configured || row.entry.settingsNs !== 'llm-pi-ai') continue
+      if (this.autoSynced.has(row.entry.provider)) continue
+      try {
+        const response = await this.ctx.remote.llm.discoverModels(row.entry.settingsNs, {
+          provider: row.entry.provider,
+          forceLive: true,
+        })
+        this.autoSynced.add(row.entry.provider)
+        if (!response.ok) {
+          failures.push(`${row.entry.provider}: ${response.error.message}`)
+          continue
+        }
+        const live = response.value
+        const path = [...row.entry.settingsPath, 'models']
+        const known = new Set(modelsEntriesOf(path, namespace, this.schema).map(entry => entry.id))
+        const newIds = live.map(model => model.id).filter(id => id.length > 0 && !known.has(id))
+        if (newIds.length === 0) continue
+        ops.push({
+          op: 'set',
+          path,
+          value: [...modelsEntriesOf(path, namespace, this.schema), ...newIds.map(id => ({ id }))],
+        })
+        addedTotal += newIds.length
+      } catch (error) {
+        this.autoSynced.add(row.entry.provider)
+        failures.push(`${row.entry.provider}: ${messageOf(error)}`)
+      }
+    }
+    if (ops.length > 0) {
+      try {
+        const response = await this.ctx.remote.settings.mutate('llm-pi-ai', ops, namespace.revision)
+        if (!response.ok) {
+          this.store.update((s) => { s.sync = { status: 'error', message: response.error.message } })
+          return
+        }
+      } catch (error) {
+        this.store.update((s) => { s.sync = { status: 'error', message: messageOf(error) } })
+        return
+      }
+      await this.load()
+    }
+    const message = failures.length > 0 ? failures.join('; ') : null
+    this.store.update((s) => { s.sync = { status: 'done', message, added: addedTotal } })
   }
 }
 
@@ -264,6 +482,7 @@ export class ModelsSettingsStore {
  */
 export function providerUsable(row: ProviderRow): boolean {
   if (!row.entry.active) return false
+  if (row.entry.provider === 'deepseek-account') return row.accountAvailable === true
   if (row.apiKeyEnv === undefined) return true
   return row.credential?.configured === true
 }
