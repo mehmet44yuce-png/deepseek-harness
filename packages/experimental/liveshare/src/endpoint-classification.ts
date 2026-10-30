@@ -206,6 +206,8 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'goals/pause': 'owner-only', // owner pauses a goal
   'goals/resume': 'owner-only', // owner resumes a goal
   'pluginInventory/list': 'owner-only', // owner plugin inventory
+  'gitUpdate/status': 'owner-only', // owner's checkout and upstream relation; the served page never reads it
+  'gitUpdate/update': 'owner-only', // rebases and restarts the owner's Host; never on a viewer's behalf
   'commands/execute': 'owner-only', // owner executes a slash command
   'permissionPresets/catalog': 'owner-only', // owner permission presets
   'userQuestions/answer': 'owner-only', // owner answers a pending question
