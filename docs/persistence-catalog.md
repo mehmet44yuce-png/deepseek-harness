@@ -1129,7 +1129,7 @@ Source: [`packages/core/session/src/types.ts:369`](../packages/core/session/src/
 'tool/ptc-dispatch': PtcDispatchEventData
 ```
 
-Source: [`packages/core/tool-executor-ptc/src/types.ts:61`](../packages/core/tool-executor-ptc/src/types.ts)
+Source: [`packages/core/tool-executor-ptc/src/types.ts:62`](../packages/core/tool-executor-ptc/src/types.ts)
 
 <a id="toolptc-dispatch-start--log-only"></a>
 
@@ -1139,7 +1139,8 @@ Source: [`packages/core/tool-executor-ptc/src/types.ts:61`](../packages/core/too
 /**
  * One sub-dispatch STARTING inside a `run_code` program: the parent
  * `run_code` call id, the opaque sub-call id (new calls use
- * `<parent>:ptc:<n>`, numbered in submission order), and the tool `name` with its
+ * `<parent>:ptc:<n>`, numbered in submission order, with a `<tag>.` before
+ * `<n>` when the parent id may repeat in the Session), and the tool `name` with its
  * JSON-normalized `arguments` — the exact value dispatched, normalized
  * BEFORE dispatch, so this append can never fail on payload shape.
  * Appended when the scheduler actually starts the call (not at
@@ -1152,7 +1153,7 @@ Source: [`packages/core/tool-executor-ptc/src/types.ts:61`](../packages/core/too
 'tool/ptc-dispatch-start': PtcDispatchStartEventData
 ```
 
-Source: [`packages/core/tool-executor-ptc/src/types.ts:45`](../packages/core/tool-executor-ptc/src/types.ts)
+Source: [`packages/core/tool-executor-ptc/src/types.ts:46`](../packages/core/tool-executor-ptc/src/types.ts)
 
 <a id="toolresult--surface"></a>
 
@@ -7215,7 +7216,7 @@ Sources: [`packages/session/session-title/src/types.ts:30`](../packages/session/
 
 SHA-256: `dba54c09c6e7aafc9acbed7792ecc920d99f92d0784aeeed10af55f7fe0bc8cd`
 
-Sources: [`packages/core/tool-executor-ptc/src/types.ts:68`](../packages/core/tool-executor-ptc/src/types.ts)
+Sources: [`packages/core/tool-executor-ptc/src/types.ts:69`](../packages/core/tool-executor-ptc/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|

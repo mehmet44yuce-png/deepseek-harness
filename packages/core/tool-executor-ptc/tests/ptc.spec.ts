@@ -899,6 +899,33 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
     expect(new Set(settles.map(settle => settle.subCallId))).toEqual(new Set(starts.map(start => start.subCallId)))
   })
 
+  it('keeps sub-call ids unique when a provider repeats a run_code call id', async () => {
+    // Some providers return short tool call ids that collide within one long Session;
+    // a repeated sub-call id leaves the stored log unloadable.
+    const { ctx, runtime } = await setup({ mode: 'ptc' })
+    ctx.tools.register(defineTool({
+      name: 'probe', description: 'Return a fixture.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => 'probed',
+    }))
+    runtime.behavior = async request => ({ logs: [], value: await request.bindings[0]!.functions.probe!({}) })
+    const subCallIds = (session: Session): string[] => session.snapshotEvents()
+      .filter(event => event.type === 'tool/ptc-dispatch-start')
+      .map(event => (event.data as { subCallId: string }).subCallId)
+
+    const fresh = Session.create(SessionId('ptc-repeat'))
+    expect((await runCode(ctx, 'program', { agent: { ctx, session: fresh } as Agent })).isError).toBe(false)
+    expect((await runCode(ctx, 'program', { agent: { ctx, session: fresh } as Agent })).isError).toBe(false)
+    const [first, second] = subCallIds(fresh)
+    expect(first).toBe('call-1:ptc:1')
+    expect(second).toMatch(/^call-1:ptc:[0-9a-f]{8}\.1$/)
+
+    // A restored Session's earlier programs ran in another lifecycle, so even its first run is tagged.
+    const restored = Session.create(fresh.id, fresh.snapshotEvents(), fresh.header)
+    expect((await runCode(ctx, 'program', { agent: { ctx, session: restored } as Agent })).isError).toBe(false)
+    expect(new Set(subCallIds(restored)).size).toBe(3)
+  })
+
   it('an exclusive call bars overlap: safe calls drain first, it runs alone, later calls wait', async () => {
     const { ctx, runtime } = await setup({ mode: 'ptc' })
     const safe = registerGated(ctx, 'safe_read', true)

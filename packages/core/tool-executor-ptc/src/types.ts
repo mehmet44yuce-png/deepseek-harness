@@ -32,7 +32,8 @@ declare module '@deepseek-ai/dsh-session/types' {
     /**
      * One sub-dispatch STARTING inside a `run_code` program: the parent
      * `run_code` call id, the opaque sub-call id (new calls use
-     * `<parent>:ptc:<n>`, numbered in submission order), and the tool `name` with its
+     * `<parent>:ptc:<n>`, numbered in submission order, with a `<tag>.` before
+     * `<n>` when the parent id may repeat in the Session), and the tool `name` with its
      * JSON-normalized `arguments` — the exact value dispatched, normalized
      * BEFORE dispatch, so this append can never fail on payload shape.
      * Appended when the scheduler actually starts the call (not at

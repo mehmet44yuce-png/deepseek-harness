@@ -6,6 +6,7 @@
  * @module
  */
 
+import { randomUUID } from 'node:crypto'
 import type { PtcDispatchLog } from './runtime-types.ts'
 import { symbols, type Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -23,9 +24,8 @@ import { defineTool, parameterSchemaSpecToJsonSchema, RUN_CODE_NAME, TOOL_ABORTE
 import type { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import { toolErrorMessage } from '@deepseek-ai/dsh-tools/pipeline'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { PtcCalls } from './ptc-calls.ts'
-import { CodeRunFailedError, ToolCallLimitExceededError } from './errors.ts'
-import type { Config } from './config.ts'
+import { PtcCalls } from './ptc-calls.ts'
+import { CodeRunFailedError } from './errors.ts'
 import type { ToolDefinition, ToolExecutionResult, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type {} from './types.ts'
 
@@ -138,6 +138,37 @@ function resolveFlavor(runtime: SupportedPtcRuntime): RunCodeFlavor {
  * detached value again so dispatch and logging stay independent without
  * reintroducing structured-clone's platform-specific nesting limit.
  */
+/**
+ * Root call ids each in-process Session has run a program under. Provider tool
+ * call ids are only unique within one response (some providers return six-digit
+ * ids that collide in a long Session), while sub-call ids must stay unique
+ * across the whole stored log or it fails to load.
+ */
+const programRoots = new WeakMap<object, Set<string>>()
+
+/**
+ * Prefix for one run's sub-call ids: the plain `<callId>:ptc:` while this
+ * lifecycle has seen the Session's whole log and not yet this call id, otherwise
+ * `<callId>:ptc:<run tag>.` with a random tag. A restored or forked Session's
+ * earlier programs ran in another lifecycle, so its runs are always tagged.
+ * @param exec - the run_code call's context.
+ * @returns the prefix each numbered sub-call id extends.
+ */
+function subCallPrefix(exec: ToolRunContext): string {
+  const callId = String(exec.callId)
+  const plain = `${callId}:ptc:`
+  const session = exec.agent?.session
+  if (session === undefined) return plain
+  let roots = programRoots.get(session)
+  if (roots === undefined) {
+    roots = new Set()
+    programRoots.set(session, roots)
+  }
+  const repeated = session.firstLifecycleSeq > 0 || roots.has(callId)
+  roots.add(callId)
+  return repeated ? `${plain}${randomUUID().slice(0, 8)}.` : plain
+}
+
 function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
   let snapshot: JsonValue | undefined
   try {
@@ -268,17 +299,14 @@ function resolveSandboxPolicy(ctx: Context, exec: ToolRunContext): SandboxExecut
  * Build the reserved `run_code` transport outside registered capabilities.
  * @param ctx - executor context owning policy listeners and active program cleanup.
  * @param executor - shared invocation pipeline for nested calls.
- * @param config - validated timeout-based tool-call allowance and concurrency limits.
- * @param calls - Executor-owned cancellation and reset coordination.
+ * @param maxParallel - maximum overlapping concurrency-safe subcalls.
  * @returns the transport definition with runtime-dependent schema text.
  */
 export function createRunCodeTool(
   ctx: Context,
   executor: ToolExecutionPipeline,
-  config: Config,
-  calls: PtcCalls,
+  maxParallel: number,
 ): ToolDefinition {
-  const { maxSubCallsPerMinute, maxParallelSubCalls: maxParallel } = config
   // Retain services for log settlement after the executor context becomes inactive.
   const tools = ctx.tools
   const logger = ctx.logger
@@ -297,6 +325,7 @@ export function createRunCodeTool(
   }
 
   const stateOwners = new WeakMap<object, WeakSet<PtcRuntime>>()
+  const calls = new PtcCalls(ctx)
   const definition = defineTool({
     name: RUN_CODE_NAME,
     // The description and `code` parameter description are placeholders here:
@@ -380,8 +409,8 @@ export function createRunCodeTool(
         const onOuterAbort = (): void => { runController.abort(callSignal.reason) }
         callSignal.addEventListener('abort', onOuterAbort, { once: true })
 
-        let toolCallAttempts = 0
-        let maxSubCalls: number
+        let dispatches = 0
+        const subCallIdPrefix = subCallPrefix(exec)
         // The per-run scheduler uses the registry's staged interface and follows
         // the same concurrency rules as the native loop. It also follows the
         // native loop's SEQUENCING: every ordered stage (the dispatch-start
@@ -508,15 +537,9 @@ export function createRunCodeTool(
           if (runOver()) {
             throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
           }
-          // Count before validation and queuing so repeated failed calls also exhaust the allowance.
-          const n = ++toolCallAttempts
-          if (n > maxSubCalls) {
-            const error = new ToolCallLimitExceededError(maxSubCalls, n, maxSubCallsPerMinute)
-            runController.abort(error)
-            throw error
-          }
           const normalized = jsonNormalizeArgs(rawArgs)
-          const subCallId = brandString<ToolCallId>(`${String(exec.callId)}:ptc:${n}`)
+          const n = ++dispatches
+          const subCallId = brandString<ToolCallId>(`${subCallIdPrefix}${n}`)
           const input = {
             callId: subCallId,
             rootCallId: exec.rootCallId,
@@ -682,7 +705,7 @@ export function createRunCodeTool(
                 runtimes.add(provider)
               }
             }
-            const spec = runtime.resolve({
+            result = await runtime.run(runtime.resolve({
               program: args.code,
               ...exec.agent === undefined || policy?.mode !== standingPolicy?.mode ? {} : { stateOwner: exec.agent },
               bindings: [{
@@ -694,10 +717,7 @@ export function createRunCodeTool(
               ...cwd !== undefined ? { cwd } : {},
               ...policy !== undefined ? { sandboxPolicy: policy } : {},
               ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
-            })
-            maxSubCalls = spec.timeoutMs === null ? Infinity
-              : Math.floor(spec.timeoutMs / 60_000 * maxSubCallsPerMinute)
-            result = await runtime.run(spec)
+            }))
           } finally {
             // Abort sub-dispatches and drain every in-flight dispatch before
             // closing the turn (queued-unstarted ones are abandoned unlogged).
@@ -707,20 +727,15 @@ export function createRunCodeTool(
           }
 
           if (result.error) {
-            const limitError = runController.signal.reason instanceof ToolCallLimitExceededError
-              ? runController.signal.reason : undefined
-            if (result.error.kind === 'abort' && exec.signal.aborted && limitError === undefined) {
-              const message = runtime.retainsState ? `tool call aborted: ${result.error.message}` : 'tool call aborted'
-              const error = new HarnessError(message, TOOL_ABORTED)
+            if (result.error.kind === 'abort' && exec.signal.aborted) {
+              const error = new HarnessError('tool call aborted', TOOL_ABORTED)
               error.name = 'AbortError'
               throw error
             }
             const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
             const sandboxText = result.sandbox === undefined ? ''
               : `\nFile sandbox: ${result.sandbox.mode}${result.sandbox.enforcement === undefined ? '' : `; enforcement: ${result.sandbox.enforcement}`}${result.sandbox.denied ? '; operation denied' : ''}.`
-            const failureText = limitError === undefined || limitError.message === result.error.message
-              ? result.error.message : `${limitError.message}\n${result.error.message}`
-            throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${failureText}${logsText}${sandboxText}${result.sandbox?.denied ? escalationGuidance(runtime.sandboxMode) : ''}`)
+            throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}${sandboxText}${result.sandbox?.denied ? escalationGuidance(runtime.sandboxMode) : ''}`)
           }
           return {
             logs: result.logs,
@@ -731,9 +746,8 @@ export function createRunCodeTool(
           callSignal.removeEventListener('abort', onOuterAbort)
         }
       }
-      return exec.agent === undefined || (runtime.sandboxMode === undefined && !runtime.retainsState) ? run(exec.signal)
-        : calls.run(exec.agent.session.id, exec.signal,
-          () => runtime.sandboxMode === undefined ? undefined : resolveSandboxPolicy(ctx, exec).mode, run)
+      return runtime.sandboxMode === undefined || exec.agent === undefined ? run(exec.signal)
+        : calls.run(exec.agent.session.id, exec.signal, () => resolveSandboxPolicy(ctx, exec).mode, run)
     },
     // The model-authored description is the call's always-visible UI label
     // (the bash `description` precedent); the program itself rides rawInput.
