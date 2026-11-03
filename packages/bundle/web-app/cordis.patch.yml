@@ -119,6 +119,9 @@
       name: '@deepseek-ai/dsh-host-git-update'
       config:
         pushRemote: fork
+        # The push runs before the supervisor reinstalls dependencies, so a pre-push
+        # typecheck sees new sources with old node_modules; the post-restart rebuild gates instead.
+        skipPushHooks: true
 
     # Session commands, cold reads, and live control over Typert Remote.
     - id: session-controller
