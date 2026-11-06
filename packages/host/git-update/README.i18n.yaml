@@ -1,0 +1,58 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/host/git-update/README.md
+/:
+  en: b136152773d9e1a4
+  zh: fef03e8b3e416ec8
+/deepseek-ai-dsh-host-git-update:
+  en: a8454d10d090aae2
+  zh: 91c9c78b541bc51b
+/deepseek-ai-dsh-host-git-update/summary:
+  en: 0e8d09e76ba6b1d3
+  zh: 50db266b32dcd8a0
+/deepseek-ai-dsh-host-git-update/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-host-git-update/use-this-package:
+  en: a1d7e9c8eb7bf1de
+  zh: 5957e377137c3a7f
+/deepseek-ai-dsh-host-git-update/use-this-package/what-status-reports:
+  en: 212bf8fd4515ba11
+  zh: 6af726091b83a2bc
+/deepseek-ai-dsh-host-git-update/use-this-package/what-update-does:
+  en: de17d6dccbf387a3
+  zh: a64cac9e0d4ecd6b
+/deepseek-ai-dsh-host-git-update/use-this-package/configuration:
+  en: 3d457f2f89f7df57
+  zh: 4438cdd38639cea7
+/deepseek-ai-dsh-host-git-update/use-this-package/failures:
+  en: 3d9974984a8a9a1f
+  zh: 950930530758332a
+/deepseek-ai-dsh-host-git-update/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 4ed0861911abaf5d
+/deepseek-ai-dsh-host-git-update/understand-the-implementation/design-concept:
+  en: bb6e71aa92328147
+  zh: bdb595b9417046eb
+/deepseek-ai-dsh-host-git-update/understand-the-implementation/pushing-safely:
+  en: 5777a131a37d49c4
+  zh: 4981665ffc2351c3
+/deepseek-ai-dsh-host-git-update/understand-the-implementation/source-map:
+  en: 366986fe588a26e2
+  zh: df582d3be4ec1ea1
+/deepseek-ai-dsh-host-git-update/further-exploration:
+  en: 3e1f2a7e3ca217cc
+  zh: 0907cb879161434c
+/deepseek-ai-dsh-host-git-update/model-experience:
+  en: 58c60f0da53e0e15
+  zh: 183dff4a097b3130
+/deepseek-ai-dsh-host-git-update/model-experience/kv-cache-effect:
+  en: ca75c51c89c2c9b0
+  zh: de54f3467ef3b9be
+/deepseek-ai-dsh-host-git-update/known-limitations-and-deferred-work:
+  en: c9cb8bb8b6cd9a1a
+  zh: 26e46a886aa54e4d
+/deepseek-ai-dsh-host-git-update/known-limitations-and-deferred-work/dev-note:
+  en: 184644cf6aa7ee92
+  zh: 647e9bd89cf8331a

@@ -16,6 +16,14 @@ import {
 import type {
   ConversationNodeDefinition, ConversationViewDefinition, ConversationViewNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ConversationUpdateError } from '../src/client/conversation/assembler.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
+  interface ConversationViewSnapshotMap {
+    /** Node ids published by the incremental-failure recovery test view. */
+    'recovery-probe': readonly string[]
+  }
+}
 
 const SESSION_ID = 'resident' as SessionId
 
@@ -71,8 +79,7 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
     ids: [],
     byId: {},
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
+    projectionsBySession: {},
   })
   const reference = {
     sessionId: SESSION_ID,
@@ -89,8 +96,7 @@ function fakeSessions(ctx: Context): { sessions: ISessions; binding: SessionBind
     using: async (_target, _options, operation) => await operation(reference),
     retainInfo: () => createSnapshotStore({ referenceCount: 1, retainedBy: {} }),
     subagentAddress: () => undefined,
-    setSubagentCatalogOpen: () => {},
-    refreshSubagents: () => Promise.reject(new Error('unused fake Sessions operation')),
+    refreshProjections: () => Promise.reject(new Error('unused fake Sessions operation')),
     refresh: () => Promise.reject(new Error('unused fake Sessions operation')),
     search: () => Promise.reject(new Error('unused fake Sessions operation')),
     fork: () => Promise.reject(new Error('unused fake Sessions operation')),
@@ -145,6 +151,171 @@ async function bootRegistries(): Promise<{
 }
 
 describe('Conversation registries', () => {
+  it('publishes open turns without an active view and detaches when the Session scope ends', async () => {
+    const { uiConversation, binding } = await bootRegistries()
+    const conversation = uiConversation.binding(binding)
+    const source = binding.eventSource as MutableSessionEventSource
+    const openTurn = conversation.openTurn
+    const published: (number | undefined)[] = []
+    const listener = vi.fn(() => { published.push(openTurn.getSnapshot()) })
+    const unsubscribe = openTurn.subscribe(listener)
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    expect(conversation.snapshot.getSnapshot().activeTargets.size).toBe(0)
+    source.append({ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 },
+    } })
+    expect(openTurn.getSnapshot()).toBe(1)
+    source.append({ type: 'event', event: {
+      type: 'step/start', seq: SessionSeq(2), time: 2, data: { turn: 1, step: 1 },
+    } })
+    expect(listener).toHaveBeenCalledOnce()
+    source.append({ type: 'event', event: {
+      type: 'turn/end', seq: SessionSeq(3), time: 3, data: { turn: 1, reason: { kind: 'completed' } },
+    } })
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    source.append({ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(4), time: 4, data: { turn: 2 },
+    } })
+    expect(openTurn.getSnapshot()).toBe(2)
+    expect(published).toEqual([1, undefined, 2])
+    expect(uiConversation.binding(binding).openTurn).toBe(openTurn)
+    expect(conversation.snapshot.getSnapshot().activeTargets.size).toBe(0)
+    unsubscribe()
+    listener.mockClear()
+    source.append({ type: 'event', event: {
+      type: 'turn/end', seq: SessionSeq(5), time: 5, data: { turn: 2, reason: { kind: 'completed' } },
+    } })
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    expect(listener).not.toHaveBeenCalled()
+    const unsubscribeAgain = openTurn.subscribe(listener)
+    await binding.ctx.fiber.dispose()
+    listener.mockClear()
+    source.append({ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(6), time: 6, data: { turn: 3 },
+    } })
+    expect(listener).not.toHaveBeenCalled()
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    unsubscribeAgain()
+  })
+
+  it('requires a loaded turn start and follows prepended history and replacement windows', async () => {
+    const { uiConversation, binding } = await bootRegistries()
+    const source = binding.eventSource as MutableSessionEventSource
+    source.replace([{ type: 'event', event: {
+      type: 'step/start', seq: SessionSeq(2), time: 2, data: { turn: 7, step: 1 },
+    } }], true)
+    const openTurn = uiConversation.binding(binding).openTurn
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    source.prepend([{ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 7 },
+    } }], false)
+    expect(openTurn.getSnapshot()).toBe(7)
+    source.replace([{ type: 'event', event: {
+      type: 'turn/end', seq: SessionSeq(3), time: 3, data: { turn: 7, reason: { kind: 'completed' } },
+    } }], true)
+    expect(openTurn.getSnapshot()).toBeUndefined()
+    source.replace([{ type: 'event', event: {
+      type: 'turn/start', seq: SessionSeq(4), time: 4, data: { turn: 8 },
+    } }], false)
+    expect(openTurn.getSnapshot()).toBe(8)
+  })
+
+  it('publishes the rebuilt window after an incremental update throws and keeps applying later events', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    onTestFinished(() => { errors.mockRestore() })
+    const { uiConversation, binding, events, views } = await bootRegistries()
+    const toggle: ConversationNodeDefinition<boolean> = {
+      kind: 'toggle',
+      target: 'recovery-probe',
+      match: event => event.type === 'turn/start'
+        ? { id: String(event.data.turn), role: 'start' }
+        : event.type === 'turn/end' ? { id: String(event.data.turn), role: 'update' } : null,
+      start: () => true,
+      update: () => false,
+      // Withdrawing a shown Node violates the incremental contract.
+      buildViewNode: context => context.state === true
+        ? { key: context.key, kind: 'toggle', id: context.id, target: 'recovery-probe', data: null }
+        : null,
+    }
+    events.register(toggle)
+    views.register({
+      target: 'recovery-probe',
+      create: () => {
+        let keys: readonly string[] = []
+        return {
+          empty: keys,
+          replace: ({ nodes }) => (keys = nodes.map(node => node.id)),
+          apply: ({ upserts }) => (keys = [...new Set([...keys, ...upserts.map(node => node.id)])]),
+        }
+      },
+    } satisfies ConversationViewDefinition<ConversationViewNode, readonly string[]>)
+    await Promise.resolve()
+    const conversation = uiConversation.binding(binding)
+    conversation.activate('recovery-probe')
+    const probe = conversation.target('recovery-probe')
+    const published: (readonly string[] | undefined)[] = []
+    const unsubscribe = conversation.snapshot.subscribe(() => { published.push(probe.getSnapshot()) })
+    onTestFinished(unsubscribe)
+    const source = binding.eventSource as MutableSessionEventSource
+
+    source.append({ type: 'event', event: { type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 } } })
+    source.append({ type: 'event', event: {
+      type: 'turn/end', seq: SessionSeq(2), time: 2, data: { turn: 1, reason: { kind: 'completed' } },
+    } })
+    expect(errors).toHaveBeenCalledOnce()
+    const failure: unknown = errors.mock.calls[0]?.[1]
+    expect(failure).toBeInstanceOf(ConversationUpdateError)
+    expect((failure as ConversationUpdateError).rebuilt).toBe(true)
+    expect(String((failure as ConversationUpdateError).cause)).toMatch(/withdrew materialized target "recovery-probe"/)
+
+    source.append({ type: 'event', event: { type: 'turn/start', seq: SessionSeq(3), time: 3, data: { turn: 2 } } })
+    expect(errors).toHaveBeenCalledOnce()
+    expect(published).toEqual([['1'], [], ['2']])
+  })
+
+  it('reports both failures and publishes nothing when replacing the views after a failed update also fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    onTestFinished(() => { errors.mockRestore() })
+    const { uiConversation, binding, events, views } = await bootRegistries()
+    const broken: ConversationNodeDefinition<boolean> = {
+      kind: 'broken',
+      target: 'chat',
+      match: event => event.type === 'turn/start'
+        ? { id: String(event.data.turn), role: 'start' }
+        : event.type === 'turn/end' ? { id: String(event.data.turn), role: 'update' } : null,
+      start: () => true,
+      update: () => false,
+      buildViewNode: (context) => {
+        if (context.state !== true) throw new Error('closed turn cannot render')
+        return { key: context.key, kind: 'broken', id: context.id, target: 'chat', data: null }
+      },
+    }
+    events.register(broken)
+    views.register(viewDefinition('chat'))
+    await Promise.resolve()
+    const conversation = uiConversation.binding(binding)
+    conversation.activate('chat')
+    const listener = vi.fn()
+    const unsubscribe = conversation.snapshot.subscribe(listener)
+    onTestFinished(unsubscribe)
+    const source = binding.eventSource as MutableSessionEventSource
+
+    source.append({ type: 'event', event: { type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 } } })
+    expect(listener).toHaveBeenCalledOnce()
+    source.append({ type: 'event', event: {
+      type: 'turn/end', seq: SessionSeq(2), time: 2, data: { turn: 1, reason: { kind: 'completed' } },
+    } })
+    expect(errors).toHaveBeenCalledOnce()
+    const failure: unknown = errors.mock.calls[0]?.[1]
+    expect(failure).toBeInstanceOf(ConversationUpdateError)
+    expect((failure as ConversationUpdateError).rebuilt).toBe(false)
+    const cause = (failure as ConversationUpdateError).cause
+    expect(cause).toBeInstanceOf(AggregateError)
+    expect((cause as AggregateError).errors.map(error => (error as Error).message))
+      .toEqual(['closed turn cannot render', 'closed turn cannot render'])
+    expect(listener).toHaveBeenCalledOnce()
+  })
+
   it('publishes frame-paced updates after three animation frames and lets immediate updates preempt them', async () => {
     let nextFrame = 0
     const frames = new Map<number, FrameRequestCallback>()
@@ -352,11 +523,13 @@ describe('Conversation registries', () => {
 
     expect(events.entries()).toHaveLength(1)
     expect(events.fallbackEntry()).toBeDefined()
+    expect(events.forEvent('turn/start').size).toBe(1)
     expect(views.entries()).toHaveLength(1)
 
     await feature.dispose()
     expect(events.entries()).toEqual([])
     expect(events.fallbackEntry()).toBeUndefined()
+    expect(events.forEvent('turn/start').size).toBe(0)
     expect(views.entries()).toEqual([])
   })
 

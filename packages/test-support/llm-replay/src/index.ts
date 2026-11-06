@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 import { SESSION_FORMAT_VERSION, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
+  createSessionFormatCatalogWithChildren,
   SessionFormatUnsupportedMigrationError,
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
@@ -22,6 +23,8 @@ import type {
   ContentBlock,
   GenerateOptions,
   LlmImageRequestPricing,
+  LlmModelBadge,
+  LlmModelBadgeTone,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -31,11 +34,13 @@ import type {
   StreamChunk,
   SystemPromptUpdate,
   TokenUsage,
+  ToolUpdate,
 } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, ReasoningEffortId, expandAssistantStream, offloadedImageText, requestImageHandleText, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+const BADGE_TONES: readonly unknown[] = ['neutral', 'info', 'success', 'warning'] satisfies readonly LlmModelBadgeTone[]
 
 if (sessionFormatCatalog.currentVersion !== SESSION_FORMAT_VERSION) {
   throw new Error(
@@ -94,7 +99,7 @@ export interface ReplayModelConfig {
    * no image pricing.
    */
   imageRequestTokens?: number
-  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  /** Optional reasoning-effort ids from least to greatest selectable effort. */
   reasoningEfforts?: string[]
   /**
    * Optional effort materialized when callers omit one; must appear in
@@ -103,6 +108,10 @@ export interface ReplayModelConfig {
   defaultReasoningEffort?: string
   /** Optional in-history system prompt replacement for a keyless replay route. */
   systemPromptUpdate?: SystemPromptUpdate
+  /** Optional mid-conversation tool declaration mode for a keyless replay route. */
+  toolUpdate?: ToolUpdate
+  /** Optional selector badge the replay catalog advertises, so keyless Web scenarios render one. */
+  badge?: LlmModelBadge
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -232,7 +241,7 @@ function parseSessionFixture(text: string): ParsedSessionFixture {
       headerLineNumber = lineNumber
       sourceHeader = recordValue
       try {
-        restore = sessionFormatCatalog.createRestore(normalizeProjectedHeader(recordValue), {
+        restore = createSessionFormatCatalogWithChildren([]).createRestore(normalizeProjectedHeader(recordValue), {
           recovery: 'strict',
           validation: 'current',
         })
@@ -641,25 +650,6 @@ function materializeSessionTokens(entry: ReplayEntry, liveSessionIds: readonly (
   return replace(entry) as ReplayEntry
 }
 
-/** Learn a background child id from the stable tool-result text before that child reaches its first model call. */
-function inferStartedSubagents(
-  messages: GenerateOptions['messages'],
-  liveSessionIds: (string | undefined)[],
-): void {
-  const leaves: string[] = []
-  collectStrings(messages, leaves)
-  for (const leaf of leaves) {
-    for (const match of leaf.matchAll(/started subagent ([^\s"'<>]+)/g)) {
-      const id = match[1]
-      /* v8 ignore next -- the fixed regular expression always has capture group 1. */
-      if (id === undefined || liveSessionIds.includes(id)) continue
-      const index = liveSessionIds.findIndex((value, candidate) => candidate > 0 && value === undefined)
-      if (index < 0) return
-      liveSessionIds[index] = id
-    }
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -852,7 +842,7 @@ class ReplayAdapter extends LlmAdapter {
 
   constructor(
     providers: readonly ReplayProviderConfig[],
-    private readonly replay: (options: GenerateOptions) => AsyncIterable<StreamChunk>,
+    private readonly replay: (options: GenerateOptions<string>) => AsyncIterable<StreamChunk>,
   ) {
     super()
     this.providers = new Map(providers.map(provider => [provider.id, provider]))
@@ -895,6 +885,7 @@ class ReplayAdapter extends LlmAdapter {
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
       ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
+      ...model.badge === undefined ? {} : { badge: model.badge },
     })))
   }
 
@@ -920,6 +911,9 @@ class ReplayAdapter extends LlmAdapter {
       ...configuredModel?.systemPromptUpdate === undefined
         ? {}
         : { systemPromptUpdate: configuredModel.systemPromptUpdate },
+      ...configuredModel?.toolUpdate === undefined
+        ? {}
+        : { toolUpdate: configuredModel.toolUpdate },
       ...configuredModel?.reasoningEfforts === undefined
         ? {}
         : {
@@ -933,7 +927,7 @@ class ReplayAdapter extends LlmAdapter {
     })
   }
 
-  override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+  override stream(options: GenerateOptions<string>): AsyncIterable<StreamChunk> {
     return this.replay(options)
   }
 }
@@ -1034,7 +1028,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   const liveSessionIds: (string | undefined)[] = Array.from({ length: scripts.length })
   let nextScript = 0
   const ANON = '\0anon\0' // the key for a call that carries no sessionId
-  const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+  const replay = (options: GenerateOptions<string>): AsyncIterable<StreamChunk> => {
     const key = options.sessionId ?? ANON
     let state = bound.get(key)
     let unrecorded = false
@@ -1072,7 +1066,6 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      inferStartedSubagents(options.messages, liveSessionIds)
       const resolved = resolveScriptedEntry(materializeSessionTokens(entry, liveSessionIds), options.messages)
       if (options.provider === 'deepseek-official' && providerAccepted(resolved)) {
         const extensions = ctx.get('deepseekLlmApiExtensions')
@@ -1094,7 +1087,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
   const providers = config.providers ?? []
   const dispose = providers.length > 0
     ? ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
-    : ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
+    : ctx.on('llm/stream', (options: GenerateOptions<string>, _next) => replay(options))
   return {
     dispose,
     assertConsumed(): void {
@@ -1136,6 +1129,16 @@ export interface Config {
   paceMs?: number
 }
 
+/** Whether a configured badge has non-blank literal or English-keyed text and a known tone. */
+function displayableBadge(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const text: unknown = Reflect.get(value, 'text')
+  const texts: unknown[] = typeof text === 'object' && text !== null ? Object.values(text) : [text]
+  return BADGE_TONES.includes(Reflect.get(value, 'tone'))
+    && (typeof text === 'string' || (typeof text === 'object' && text !== null && Object.hasOwn(text, 'en')))
+    && texts.every(entry => typeof entry === 'string' && entry.trim() !== '')
+}
+
 function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined): void {
   for (const provider of providers ?? []) {
     for (const model of provider.models ?? []) {
@@ -1169,6 +1172,19 @@ function validateConfiguredModels(providers: ReplayProviderConfig[] | undefined)
         throw new Error(
           `llm-replay: provider "${provider.id}" model "${model.id}" systemPromptUpdate `
           + 'must be "in-history" when present',
+        )
+      }
+      const toolUpdate: unknown = model.toolUpdate
+      if (toolUpdate !== undefined && toolUpdate !== 'in-history' && toolUpdate !== 'addition-only') {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" toolUpdate `
+          + 'must be "in-history" or "addition-only" when present',
+        )
+      }
+      if (model.badge !== undefined && !displayableBadge(model.badge)) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" badge needs non-blank text or translations `
+          + 'with an "en" entry, and a neutral, info, success, or warning tone',
         )
       }
     }

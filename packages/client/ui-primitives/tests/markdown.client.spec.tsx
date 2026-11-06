@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JsonBlock, MarkdownText } from './markdown-test-components.tsx'
-import { LinkIcon, MarkdownDelegateProvider } from '../src/index.ts'
+import { LinkIconMedium, MarkdownDelegateProvider } from '../src/index.ts'
 import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
 import { mathCompatibility } from '../src/markdown/mathCompatibility.ts'
 
@@ -59,6 +59,16 @@ describe('MarkdownText', () => {
     expect(container.querySelector('br')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'safe' }).getAttribute('target')).toBe('_blank')
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
+  })
+
+  it('keeps single tildes literal and strikes only double-tilde runs', () => {
+    const source = '约 10~20 分钟，或 30~40 分钟，~~删除~~'
+    for (const streaming of [false, true]) {
+      const rendered = render(<MarkdownText text={source} streaming={streaming} />)
+      expect([...rendered.container.querySelectorAll('del')].map(node => node.textContent)).toEqual(['删除'])
+      expect(rendered.container.textContent).toContain('约 10~20 分钟，或 30~40 分钟')
+      rendered.unmount()
+    }
   })
 
   it('closes punctuation-terminated strong emphasis before adjacent CJK text', () => {
@@ -332,6 +342,17 @@ describe('MarkdownText', () => {
     }
   })
 
+  it('omits raw HTML when asked, in settled and streaming renders, and rebuilds the stream when the choice changes', () => {
+    const text = 'Before <b>bold</b> after\n\n<div align="center">block</div>\n\nTail'
+    const view = render(<MarkdownText text={text} omitHtml />)
+    expect(view.container.textContent).toBe('Before bold after\nTail')
+    expect(view.container.querySelector('div[align]')).toBeNull()
+    view.rerender(<MarkdownText text={text} streaming omitHtml />)
+    expect(view.container.textContent).toBe('Before bold after\nTail')
+    view.rerender(<MarkdownText text={text} streaming />)
+    expect(view.container.textContent).toContain('<div align="center">block</div>')
+  })
+
   it('neutralizes raw HTML, unsafe or relative links, and unsupported images', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',
@@ -363,9 +384,10 @@ describe('MarkdownText', () => {
 
   it('leads a known site link with its own mark and an unknown host with the globe', () => {
     const { container } = render(<MarkdownText text={'[repo](https://github.com/org/repo) [docs](https://example.com/a)'} />)
-    const marks = [...container.querySelectorAll('p a svg path')].map(path => path.getAttribute('d'))
-    const globe = render(<LinkIcon kind="url" />).container.querySelector('path')!.getAttribute('d')
-    const github = render(<LinkIcon kind="url" href="https://github.com/a" />).container.querySelector('path')!.getAttribute('d')
+    const pathsOf = (svg: SVGSVGElement): (string | null)[] => [...svg.querySelectorAll('path')].map(path => path.getAttribute('d'))
+    const marks = [...container.querySelectorAll<SVGSVGElement>('p a svg')].map(pathsOf)
+    const globe = pathsOf(render(<LinkIconMedium kind="url" />).container.querySelector('svg')!)
+    const github = pathsOf(render(<LinkIconMedium kind="url" href="https://github.com/a" />).container.querySelector('svg')!)
     expect(marks).toEqual([github, globe])
   })
 

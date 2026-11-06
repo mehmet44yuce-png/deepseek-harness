@@ -1,0 +1,174 @@
+/* Every color resolves through a --dsw-alias-* token so both themes stay
+ * correct; the section repeats the Models page geometry it sits beside. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+
+.intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.status,
+.detail {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error,
+.failure p {
+  margin: 0;
+}
+
+.error,
+.failure {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.detail {
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.facts div {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.facts code {
+  font-family: var(--ds-font-family-code);
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-module-platform);
+  padding: 14px 16px;
+}
+
+.result .facts {
+  border: none;
+  padding: 0;
+}
+
+.outcome {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+}
+
+.result[data-outcome='conflict'] .outcome,
+.result[data-outcome='failed'] .outcome,
+.result[data-outcome='refused'] .outcome {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.stepsTitle {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: minmax(0, 140px) minmax(0, 90px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.stepName {
+  color: var(--dsw-alias-label-primary);
+}
+
+.stepStatus {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.step[data-status='failed'] .stepStatus {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.stepDetail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+}

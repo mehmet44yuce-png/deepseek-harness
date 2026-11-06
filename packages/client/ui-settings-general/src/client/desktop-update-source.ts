@@ -1,6 +1,6 @@
 /** Client-owned observation of the optional Desktop preload. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { DesktopUpdateBridge, DesktopUpdateView } from './desktop-update-bridge.ts'
+import type { DesktopUpdateBridge, DesktopUpdateView } from '../types.ts'
 
 /** Owns one preload subscription across both sidebar locations. */
 export class DesktopUpdateSource {
@@ -28,7 +28,7 @@ export class DesktopUpdateSource {
   open(): void {
     if (!this.live || this.bridge === undefined) return
     const state = this.store.getSnapshot()
-    if (state.opening || (state.presentation !== undefined
+    if (state.opening || (state.presentation !== undefined && state.presentation.configurationError === undefined
       && ['checking', 'downloading', 'verifying', 'installing'].includes(state.presentation.phase))) return
     this.store.set({ ...state, opening: true })
     void this.bridge.open().catch(() => {
